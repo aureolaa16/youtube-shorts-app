@@ -1,6 +1,8 @@
 """
-YouTube Shorts Automation - Web App
-Prototipo con Streamlit
+YouTube Shorts Automation - Web App v2
+- Subida múltiple de vídeos
+- Títulos opcionales (rellenar después)
+- Procesamiento cuando el usuario decida
 """
 
 import streamlit as st
@@ -21,7 +23,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Estilos CSS personalizados
+# Estilos CSS
 st.markdown("""
 <style>
     .main-header {
@@ -35,32 +37,47 @@ st.markdown("""
         color: #666;
         margin-top: 0;
     }
+    .upload-area {
+        border: 2px dashed #ccc;
+        border-radius: 10px;
+        padding: 40px;
+        text-align: center;
+        background-color: #fafafa;
+    }
+    .video-card {
+        background-color: #f8f9fa;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 10px;
+        border-left: 4px solid #1a73e8;
+    }
     .status-pending {
-        background-color: #fff3cd;
-        padding: 5px 10px;
-        border-radius: 5px;
         color: #856404;
+        background-color: #fff3cd;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+    .status-ready {
+        color: #0c5460;
+        background-color: #d1ecf1;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
     }
     .status-uploaded {
-        background-color: #d4edda;
-        padding: 5px 10px;
-        border-radius: 5px;
         color: #155724;
+        background-color: #d4edda;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
     }
     .status-error {
-        background-color: #f8d7da;
-        padding: 5px 10px;
-        border-radius: 5px;
         color: #721c24;
-    }
-    .metric-card {
-        background-color: #f8f9fa;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
-    }
-    .stButton>button {
-        width: 100%;
+        background-color: #f8d7da;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 0.85rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -95,17 +112,14 @@ def load_credentials_from_token(token_json):
 
 
 def get_drive_service(credentials):
-    """Obtener servicio de Google Drive"""
     return build('drive', 'v3', credentials=credentials)
 
 
 def get_sheets_service(credentials):
-    """Obtener servicio de Google Sheets"""
     return build('sheets', 'v4', credentials=credentials)
 
 
 def get_youtube_service(credentials):
-    """Obtener servicio de YouTube"""
     return build('youtube', 'v3', credentials=credentials)
 
 
@@ -137,7 +151,6 @@ def get_sheet_data(sheets_service, spreadsheet_id, sheet_name):
         if len(rows) <= 1:
             return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL'])
         
-        # Normalizar filas
         headers = ['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL']
         data = []
         for row in rows[1:]:
@@ -169,7 +182,7 @@ def add_row_to_sheet(sheets_service, spreadsheet_id, sheet_name, row_data):
 
 
 def update_sheet_row(sheets_service, spreadsheet_id, sheet_name, row_num, titulo, descripcion):
-    """Actualizar título y descripción de una fila"""
+    """Actualizar título y descripción"""
     try:
         range_name = f"'{sheet_name}'!B{row_num}:C{row_num}"
         sheets_service.spreadsheets().values().update(
@@ -187,8 +200,7 @@ def update_sheet_row(sheets_service, spreadsheet_id, sheet_name, row_num, titulo
 def upload_video_to_drive(drive_service, folder_id, file, filename):
     """Subir vídeo a Google Drive"""
     try:
-        # Guardar archivo temporalmente
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
             tmp.write(file.getbuffer())
             tmp_path = tmp.name
         
@@ -197,7 +209,7 @@ def upload_video_to_drive(drive_service, folder_id, file, filename):
             'parents': [folder_id]
         }
         
-        media = MediaFileUpload(tmp_path, mimetype='video/mp4', resumable=True)
+        media = MediaFileUpload(tmp_path, resumable=True)
         
         uploaded_file = drive_service.files().create(
             body=file_metadata,
@@ -213,10 +225,10 @@ def upload_video_to_drive(drive_service, folder_id, file, filename):
 
 
 def render_sidebar():
-    """Renderizar sidebar con configuración"""
+    """Sidebar con configuración"""
     with st.sidebar:
-        st.image("https://www.gstatic.com/youtube/img/branding/youtubelogo/svg/youtubelogo.svg", width=150)
-        st.markdown("### ⚙️ Configuración")
+        st.markdown("## 🎬 YouTube Shorts")
+        st.markdown("---")
         
         # Autenticación
         with st.expander("🔐 Autenticación", expanded=not st.session_state.authenticated):
@@ -232,7 +244,7 @@ def render_sidebar():
                     if creds:
                         st.session_state.credentials = creds
                         st.session_state.authenticated = True
-                        st.success("✅ Conectado correctamente")
+                        st.success("✅ Conectado")
                         st.rerun()
                 else:
                     st.warning("Pega el token JSON")
@@ -240,12 +252,10 @@ def render_sidebar():
         if st.session_state.authenticated:
             st.success("✅ Autenticado")
             
-            # Configuración de IDs
-            with st.expander("📁 Carpetas de Drive", expanded=False):
+            with st.expander("📁 Carpetas de Drive"):
                 st.session_state.config['folder_videos'] = st.text_input(
                     "ID carpeta videos/",
-                    value=st.session_state.config['folder_videos'],
-                    help="ID de la carpeta donde se suben los vídeos"
+                    value=st.session_state.config['folder_videos']
                 )
                 st.session_state.config['folder_procesados'] = st.text_input(
                     "ID carpeta procesados/",
@@ -256,7 +266,7 @@ def render_sidebar():
                     value=st.session_state.config['folder_errores']
                 )
             
-            with st.expander("📊 Google Sheet", expanded=False):
+            with st.expander("📊 Google Sheet"):
                 st.session_state.config['spreadsheet_id'] = st.text_input(
                     "ID del Spreadsheet",
                     value=st.session_state.config['spreadsheet_id']
@@ -266,13 +276,13 @@ def render_sidebar():
                     value=st.session_state.config['sheet_name']
                 )
             
-            with st.expander("📧 Notificaciones", expanded=False):
+            with st.expander("📧 Notificaciones"):
                 st.session_state.config['notification_email'] = st.text_input(
-                    "Email para notificaciones",
+                    "Email",
                     value=st.session_state.config['notification_email']
                 )
             
-            st.divider()
+            st.markdown("---")
             if st.button("🚪 Desconectar"):
                 st.session_state.authenticated = False
                 st.session_state.credentials = None
@@ -280,196 +290,220 @@ def render_sidebar():
 
 
 def render_dashboard():
-    """Renderizar dashboard principal"""
+    """Dashboard principal"""
     st.markdown('<p class="main-header">🎬 YouTube Shorts Automation</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Gestiona y automatiza tus subidas de Shorts</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Sube vídeos, rellena los datos cuando quieras, y procesa automáticamente</p>', unsafe_allow_html=True)
     
     if not st.session_state.authenticated:
-        st.warning("👈 Conecta tu cuenta de Google en la barra lateral para empezar")
-        
-        # Mostrar instrucciones
-        with st.expander("📖 ¿Cómo empezar?", expanded=True):
-            st.markdown("""
-            ### Pasos para configurar:
-            
-            1. **Genera el token de autenticación** ejecutando el script Python con tus credenciales OAuth
-            2. **Copia el contenido** del archivo `token.json` generado
-            3. **Pégalo en la barra lateral** en la sección de Autenticación
-            4. **Configura los IDs** de las carpetas de Drive y el Sheet
-            
-            ### Requisitos:
-            - Proyecto en Google Cloud con las APIs habilitadas
-            - Credenciales OAuth configuradas
-            - Carpetas creadas en Google Drive
-            - Google Sheet con las columnas correctas
-            """)
+        st.warning("👈 Conecta tu cuenta de Google en la barra lateral")
+        render_instructions()
         return
     
-    # Verificar configuración
     config = st.session_state.config
     if not config['folder_videos'] or not config['spreadsheet_id']:
         st.warning("⚙️ Configura los IDs de carpetas y Sheet en la barra lateral")
         return
     
-    # Obtener servicios
     creds = st.session_state.credentials
     drive_service = get_drive_service(creds)
     sheets_service = get_sheets_service(creds)
     
-    # Métricas
+    # Obtener datos
     df = get_sheet_data(sheets_service, config['spreadsheet_id'], config['sheet_name'])
+    videos_in_drive = list_videos_in_folder(drive_service, config['folder_videos'])
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Métricas
+    render_metrics(df, videos_in_drive)
     
-    with col1:
-        total = len(df)
-        st.metric("📹 Total vídeos", total)
+    st.markdown("---")
     
-    with col2:
-        pending = len(df[df['Estado'].str.contains('Pendiente', case=False, na=False)])
-        st.metric("⏳ Pendientes", pending)
-    
-    with col3:
-        uploaded = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
-        st.metric("✅ Subidos", uploaded)
-    
-    with col4:
-        errors = len(df[df['Estado'].str.contains('Error', case=False, na=False)])
-        st.metric("❌ Errores", errors)
-    
-    st.divider()
-    
-    # Tabs principales
-    tab1, tab2, tab3, tab4 = st.tabs(["📤 Subir vídeo", "📋 Cola de vídeos", "📊 Historial", "🔧 Procesar ahora"])
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📤 Subir vídeos", 
+        "✏️ Rellenar datos", 
+        "📊 Historial",
+        "🔄 Sincronizar"
+    ])
     
     with tab1:
         render_upload_tab(drive_service, sheets_service, config)
     
     with tab2:
-        render_queue_tab(sheets_service, config, df)
+        render_edit_tab(sheets_service, config, df)
     
     with tab3:
         render_history_tab(df)
     
     with tab4:
-        render_process_tab(drive_service, sheets_service, config)
+        render_sync_tab(drive_service, sheets_service, config, df, videos_in_drive)
+
+
+def render_instructions():
+    """Instrucciones iniciales"""
+    with st.expander("📖 ¿Cómo funciona?", expanded=True):
+        st.markdown("""
+        ### Flujo de trabajo
+        
+        1. **📤 Sube vídeos** → Arrastra uno o varios vídeos
+        2. **⏳ Espera** → El sistema crea las filas automáticamente
+        3. **✏️ Rellena datos** → Cuando quieras, añade título y descripción
+        4. **🚀 Procesamiento** → La Cloud Function sube a YouTube los que tengan título
+        
+        ### Configuración necesaria
+        
+        1. Pega tu `token.json` en la barra lateral
+        2. Configura los IDs de las carpetas de Drive
+        3. Configura el ID del Google Sheet
+        """)
+
+
+def render_metrics(df, videos_in_drive):
+    """Mostrar métricas"""
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("📁 En Drive", len(videos_in_drive))
+    
+    with col2:
+        pending = len(df[df['Estado'].str.contains('Pendiente', case=False, na=True) | (df['Estado'] == '')])
+        st.metric("⏳ Sin título", pending)
+    
+    with col3:
+        ready = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido', case=False, na=False))])
+        st.metric("✅ Listos", ready)
+    
+    with col4:
+        uploaded = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
+        st.metric("🎬 Subidos", uploaded)
+    
+    with col5:
+        errors = len(df[df['Estado'].str.contains('Error', case=False, na=False)])
+        st.metric("❌ Errores", errors)
 
 
 def render_upload_tab(drive_service, sheets_service, config):
-    """Tab de subida de vídeos"""
-    st.markdown("### 📤 Subir nuevo vídeo")
+    """Tab de subida múltiple"""
+    st.markdown("### 📤 Subir vídeos a Drive")
+    st.info("💡 Sube los vídeos aquí. El sistema creará las filas en el Sheet automáticamente. Podrás rellenar título y descripción después.")
     
-    col1, col2 = st.columns([1, 1])
+    uploaded_files = st.file_uploader(
+        "Arrastra o selecciona vídeos (puedes subir varios)",
+        type=['mp4', 'mov', 'avi'],
+        accept_multiple_files=True,
+        help="Formatos: MP4, MOV, AVI. Máximo 60 segundos para Shorts."
+    )
     
-    with col1:
-        uploaded_file = st.file_uploader(
-            "Arrastra o selecciona un vídeo",
-            type=['mp4', 'mov', 'avi'],
-            help="Formatos aceptados: MP4, MOV, AVI. Máximo 60 segundos para Shorts."
-        )
+    if uploaded_files:
+        st.markdown(f"**{len(uploaded_files)} vídeo(s) seleccionado(s)**")
         
-        if uploaded_file:
-            st.video(uploaded_file)
+        # Preview de vídeos
+        cols = st.columns(min(len(uploaded_files), 3))
+        for i, file in enumerate(uploaded_files):
+            with cols[i % 3]:
+                st.markdown(f"**{file.name}**")
+                size_mb = file.size / (1024 * 1024)
+                st.caption(f"{size_mb:.1f} MB")
+        
+        st.markdown("---")
+        
+        if st.button("🚀 Subir todos a Drive", type="primary"):
+            progress = st.progress(0)
+            status = st.empty()
             
-            file_size = uploaded_file.size / (1024 * 1024)
-            st.caption(f"📁 {uploaded_file.name} ({file_size:.1f} MB)")
-    
-    with col2:
-        st.markdown("#### Metadatos del Short")
-        
-        titulo = st.text_input(
-            "Título",
-            max_chars=100,
-            help="Máximo 100 caracteres. Se añadirá #Shorts automáticamente."
-        )
-        
-        descripcion = st.text_area(
-            "Descripción",
-            height=150,
-            help="Puedes incluir hashtags y enlaces."
-        )
-        
-        col_btn1, col_btn2 = st.columns(2)
-        
-        with col_btn1:
-            upload_now = st.checkbox("Subir y procesar inmediatamente", value=False)
-        
-        with col_btn2:
-            if st.button("🚀 Subir vídeo", type="primary", disabled=not uploaded_file):
-                if not titulo:
-                    st.warning("Escribe un título para el vídeo")
-                else:
-                    with st.spinner("Subiendo vídeo a Google Drive..."):
-                        result = upload_video_to_drive(
-                            drive_service,
-                            config['folder_videos'],
-                            uploaded_file,
-                            uploaded_file.name
-                        )
-                        
-                        if result:
-                            # Añadir fila al Sheet
-                            row_data = [
-                                uploaded_file.name,
-                                titulo,
-                                descripcion,
-                                "Pendiente" if not upload_now else "En proceso",
-                                ""
-                            ]
-                            
-                            if add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], row_data):
-                                st.success(f"✅ Vídeo '{uploaded_file.name}' subido correctamente")
-                                st.balloons()
-                            else:
-                                st.error("Error añadiendo entrada al Sheet")
+            success_count = 0
+            for i, file in enumerate(uploaded_files):
+                status.text(f"Subiendo {file.name}...")
+                
+                result = upload_video_to_drive(
+                    drive_service,
+                    config['folder_videos'],
+                    file,
+                    file.name
+                )
+                
+                if result:
+                    # Añadir fila al Sheet con estado "Pendiente de rellenar"
+                    row_data = [file.name, "", "", "Pendiente de rellenar", ""]
+                    add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], row_data)
+                    success_count += 1
+                
+                progress.progress((i + 1) / len(uploaded_files))
+            
+            status.empty()
+            progress.empty()
+            
+            if success_count == len(uploaded_files):
+                st.success(f"✅ {success_count} vídeo(s) subido(s) correctamente")
+                st.balloons()
+            else:
+                st.warning(f"⚠️ {success_count}/{len(uploaded_files)} vídeos subidos")
+            
+            st.info("👉 Ve a la pestaña **'Rellenar datos'** para añadir títulos y descripciones")
 
 
-def render_queue_tab(sheets_service, config, df):
-    """Tab de cola de vídeos"""
-    st.markdown("### 📋 Cola de vídeos pendientes")
+def render_edit_tab(sheets_service, config, df):
+    """Tab de edición de títulos y descripciones"""
+    st.markdown("### ✏️ Rellenar títulos y descripciones")
+    st.info("💡 Los vídeos con título relleno se procesarán automáticamente en el próximo ciclo (cada 5 minutos)")
     
-    # Filtrar pendientes
+    # Filtrar pendientes (sin título o con estado pendiente)
     pending_df = df[
-        (df['Estado'].str.contains('Pendiente', case=False, na=True)) | 
+        (df['Título'].str.strip() == '') | 
+        (df['Estado'].str.contains('Pendiente', case=False, na=True)) |
         (df['Estado'] == '')
     ].copy()
     
     if pending_df.empty:
-        st.info("🎉 No hay vídeos pendientes de procesar")
+        st.success("🎉 No hay vídeos pendientes de rellenar")
         return
     
-    st.markdown(f"**{len(pending_df)} vídeo(s) en cola**")
+    st.markdown(f"**{len(pending_df)} vídeo(s) pendiente(s)**")
     
+    # Formulario de edición
     for idx, row in pending_df.iterrows():
-        with st.expander(f"📹 {row['Nombre archivo']}", expanded=True):
-            col1, col2 = st.columns([2, 1])
+        with st.container():
+            st.markdown(f"""
+            <div class="video-card">
+                <strong>📹 {row['Nombre archivo']}</strong>
+                <span class="status-pending">Pendiente</span>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2, col3 = st.columns([2, 2, 1])
             
             with col1:
                 new_titulo = st.text_input(
                     "Título",
                     value=row['Título'],
                     key=f"titulo_{idx}",
-                    max_chars=100
-                )
-                
-                new_descripcion = st.text_area(
-                    "Descripción",
-                    value=row['Descripción'],
-                    key=f"desc_{idx}",
-                    height=100
+                    max_chars=100,
+                    placeholder="Escribe el título del Short..."
                 )
             
             with col2:
-                st.markdown("**Estado actual:**")
-                status = row['Estado'] if row['Estado'] else "Sin procesar"
-                st.markdown(f"🔸 {status}")
-                
-                if st.button("💾 Guardar cambios", key=f"save_{idx}"):
-                    # La fila en el Sheet es idx + 2 (header + 0-index)
-                    row_num = idx + 2
+                new_descripcion = st.text_input(
+                    "Descripción",
+                    value=row['Descripción'],
+                    key=f"desc_{idx}",
+                    placeholder="Descripción (opcional)..."
+                )
+            
+            with col3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("💾 Guardar", key=f"save_{idx}"):
+                    row_num = idx + 2  # +2 por header y 0-index
                     if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], row_num, new_titulo, new_descripcion):
-                        st.success("✅ Guardado")
+                        st.success("✅")
                         st.rerun()
+            
+            st.markdown("---")
+    
+    # Botón para guardar todos
+    st.markdown("### Acciones rápidas")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🔄 Actualizar lista"):
+            st.rerun()
 
 
 def render_history_tab(df):
@@ -483,7 +517,7 @@ def render_history_tab(df):
         st.info("📭 No hay vídeos subidos todavía")
         return
     
-    st.markdown(f"**{len(uploaded_df)} vídeo(s) subido(s)**")
+    st.markdown(f"**{len(uploaded_df)} vídeo(s) subido(s) a YouTube**")
     
     for idx, row in uploaded_df.iterrows():
         with st.container():
@@ -491,53 +525,77 @@ def render_history_tab(df):
             
             with col1:
                 st.markdown(f"**{row['Título']}**")
-                st.caption(row['Nombre archivo'])
+                st.caption(f"📁 {row['Nombre archivo']}")
             
             with col2:
-                st.markdown(row['Descripción'][:100] + "..." if len(row['Descripción']) > 100 else row['Descripción'])
+                desc = row['Descripción']
+                if len(desc) > 80:
+                    desc = desc[:80] + "..."
+                st.markdown(desc if desc else "*Sin descripción*")
             
             with col3:
                 if row['YouTube URL']:
-                    st.link_button("▶️ Ver en YouTube", row['YouTube URL'])
+                    st.link_button("▶️ Ver", row['YouTube URL'])
             
-            st.divider()
+            st.markdown("---")
 
 
-def render_process_tab(drive_service, sheets_service, config):
-    """Tab de procesamiento manual"""
-    st.markdown("### 🔧 Procesar vídeos manualmente")
+def render_sync_tab(drive_service, sheets_service, config, df, videos_in_drive):
+    """Tab de sincronización"""
+    st.markdown("### 🔄 Sincronización")
     
-    st.info("""
-    El sistema procesa automáticamente cada 5 minutos. 
-    Usa este botón si quieres forzar el procesamiento inmediato.
-    """)
+    st.markdown("#### Vídeos en Drive sin registro en Sheet")
     
-    # Mostrar vídeos en Drive
-    st.markdown("#### Vídeos en carpeta /videos/")
+    # Encontrar vídeos en Drive que no están en el Sheet
+    sheet_filenames = set(df['Nombre archivo'].str.lower())
+    unregistered = [v for v in videos_in_drive if v['name'].lower() not in sheet_filenames]
     
-    videos = list_videos_in_folder(drive_service, config['folder_videos'])
-    
-    if not videos:
-        st.success("✅ No hay vídeos pendientes en Drive")
-    else:
-        for video in videos:
+    if unregistered:
+        st.warning(f"⚠️ Hay {len(unregistered)} vídeo(s) en Drive sin entrada en el Sheet")
+        
+        for video in unregistered:
             col1, col2 = st.columns([3, 1])
             with col1:
                 size_mb = int(video.get('size', 0)) / (1024 * 1024)
                 st.markdown(f"📹 **{video['name']}** ({size_mb:.1f} MB)")
             with col2:
-                created = video.get('createdTime', '')[:10]
-                st.caption(created)
+                if st.button("➕ Añadir", key=f"add_{video['id']}"):
+                    row_data = [video['name'], "", "", "Pendiente de rellenar", ""]
+                    if add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], row_data):
+                        st.success("✅ Añadido")
+                        st.rerun()
+        
+        st.markdown("---")
+        
+        if st.button("➕ Añadir todos al Sheet", type="primary"):
+            for video in unregistered:
+                row_data = [video['name'], "", "", "Pendiente de rellenar", ""]
+                add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], row_data)
+            st.success(f"✅ {len(unregistered)} vídeos añadidos")
+            st.rerun()
+    else:
+        st.success("✅ Todos los vídeos están sincronizados")
     
-    st.divider()
+    st.markdown("---")
     
-    if st.button("⚡ Ejecutar procesamiento ahora", type="primary"):
-        st.warning("⚠️ Esta función ejecutará el procesamiento completo. En el prototipo, esto requiere la Cloud Function desplegada.")
-        st.code("curl https://europe-west1-PROJECT.cloudfunctions.net/youtube-shorts-uploader", language="bash")
+    st.markdown("#### Estado del sistema")
+    st.markdown(f"""
+    - 📁 **Vídeos en Drive:** {len(videos_in_drive)}
+    - 📊 **Filas en Sheet:** {len(df)}
+    - ⏳ **Pendientes de título:** {len(df[(df['Título'].str.strip() == '') | (df['Estado'].str.contains('Pendiente', case=False, na=True))])}
+    - ✅ **Listos para procesar:** {len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido', case=False, na=False)) & (~df['Estado'].str.contains('Error', case=False, na=False))])}
+    """)
+    
+    st.markdown("---")
+    
+    st.markdown("#### Procesar manualmente")
+    st.info("El sistema procesa automáticamente cada 5 minutos. Usa este botón para ver el estado o forzar el procesamiento.")
+    
+    if st.button("🔧 Ver logs de Cloud Function"):
+        st.code("gcloud functions logs read youtube-shorts-uploader --region=europe-west1 --limit=20", language="bash")
 
 
 def main():
-    """Función principal"""
     init_session_state()
     render_sidebar()
     render_dashboard()
