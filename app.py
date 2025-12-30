@@ -274,7 +274,7 @@ def list_videos_in_folder(drive_service, folder_id):
 
 def get_sheet_data(sheets_service, spreadsheet_id, sheet_name):
     try:
-        range_name = f"'{sheet_name}'!A:E"
+        range_name = f"'{sheet_name}'!A:G"
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
             range=range_name
@@ -282,24 +282,30 @@ def get_sheet_data(sheets_service, spreadsheet_id, sheet_name):
         
         rows = result.get('values', [])
         if len(rows) <= 1:
-            return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL'])
+            return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación'])
         
-        headers = ['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL']
+        headers = ['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación']
         data = []
         for row in rows[1:]:
-            while len(row) < 5:
+            while len(row) < 7:
                 row.append('')
-            data.append(row[:5])
+            data.append(row[:7])
         
         return pd.DataFrame(data, columns=headers)
     except:
-        return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL'])
+        return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación'])
 
 def add_row_to_sheet(sheets_service, spreadsheet_id, sheet_name, row_data):
     try:
+        # Añadir fecha de subida si no está incluida
+        if len(row_data) < 6:
+            row_data.append(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))  # Fecha subida
+        if len(row_data) < 7:
+            row_data.append('')  # Fecha publicación (se llenará al publicar)
+        
         sheets_service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
-            range=f"'{sheet_name}'!A:E",
+            range=f"'{sheet_name}'!A:G",
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [row_data]}
@@ -361,6 +367,55 @@ def format_size(b):
 def format_time(s):
     if s < 60: return f"{s:.0f}s"
     return f"{s/60:.1f}min"
+
+def format_relative_date(date_str):
+    """Convierte fecha a formato relativo (hace X días/horas)"""
+    if not date_str:
+        return ""
+    try:
+        # Intentar parsear varios formatos
+        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y %H:%M:%S', '%Y-%m-%d']:
+            try:
+                date = datetime.strptime(date_str.split('.')[0], fmt)
+                break
+            except:
+                continue
+        else:
+            return date_str  # Si no se puede parsear, devolver original
+        
+        now = datetime.now()
+        diff = now - date
+        
+        if diff.days > 30:
+            months = diff.days // 30
+            return f"hace {months} mes{'es' if months > 1 else ''}"
+        elif diff.days > 0:
+            return f"hace {diff.days} día{'s' if diff.days > 1 else ''}"
+        elif diff.seconds > 3600:
+            hours = diff.seconds // 3600
+            return f"hace {hours} hora{'s' if hours > 1 else ''}"
+        elif diff.seconds > 60:
+            mins = diff.seconds // 60
+            return f"hace {mins} min"
+        else:
+            return "ahora mismo"
+    except:
+        return date_str
+
+def format_date_short(date_str):
+    """Formatea fecha corta"""
+    if not date_str:
+        return "-"
+    try:
+        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%d/%m/%Y %H:%M:%S', '%Y-%m-%d']:
+            try:
+                date = datetime.strptime(date_str.split('.')[0], fmt)
+                return date.strftime('%d/%m/%Y %H:%M')
+            except:
+                continue
+        return date_str
+    except:
+        return date_str
 
 def get_next_process():
     now = datetime.now()
@@ -507,60 +562,80 @@ def render_edit_tab(sheets_service, config, df):
     </div>
     """, unsafe_allow_html=True)
     
-    # Filtrar pendientes (sin título o estado pendiente)
-    pending_df = df[
-        (df['Título'].str.strip() == '') | 
-        df['Estado'].str.contains('Pendiente', case=False, na=True) |
-        (df['Estado'] == '')
+    # Separar en dos grupos:
+    # 1. Sin título (para rellenar)
+    # 2. Con título pero no subido (en cola)
+    
+    sin_titulo = df[
+        (df['Título'].str.strip() == '') & 
+        (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))
     ].copy()
     
-    if pending_df.empty:
-        st.markdown("""
-        <div class="empty-state">
-            <div class="empty-icon">🎉</div>
-            <h3>¡Todo listo!</h3>
-            <p>No hay vídeos pendientes. Sube más en la pestaña anterior.</p>
+    en_cola = df[
+        (df['Título'].str.strip() != '') & 
+        (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))
+    ].copy()
+    
+    # === SECCIÓN: EN COLA ===
+    if not en_cola.empty:
+        st.markdown(f"""
+        <div class="info-box info-green">
+            <strong>🚀 {len(en_cola)} vídeo(s) en cola</strong> - Se subirán a YouTube en el próximo procesamiento
         </div>
         """, unsafe_allow_html=True)
-        return
+        
+        for idx, row in en_cola.iterrows():
+            fecha_subida = row.get('Fecha subida', '') if 'Fecha subida' in row else ''
+            tiempo_esperando = format_relative_date(fecha_subida) if fecha_subida else ""
+            
+            st.markdown(f"""
+            <div style="background: #e8f5e9; padding: 12px 15px; border-radius: 8px; border-left: 4px solid #4caf50; margin-bottom: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span class="badge badge-ready">🚀 En cola</span>
+                        <strong style="margin-left: 10px;">📹 {row['Nombre archivo']}</strong>
+                        <span style="color: #666; margin-left: 10px;">→ {row['Título']}</span>
+                    </div>
+                    <small style="color: #888;">{tiempo_esperando}</small>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("---")
     
-    # Inicializar estado de guardado
-    if 'saved_videos' not in st.session_state:
-        st.session_state.saved_videos = set()
+    # === SECCIÓN: SIN TÍTULO ===
+    if sin_titulo.empty:
+        if en_cola.empty:
+            st.markdown("""
+            <div class="empty-state">
+                <div class="empty-icon">🎉</div>
+                <h3>¡Todo listo!</h3>
+                <p>No hay vídeos pendientes. Sube más en la pestaña anterior.</p>
+            </div>
+            """, unsafe_allow_html=True)
+        return
     
     # Header con contador y botón guardar todos
     col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown(f"**{len(pending_df)} vídeo(s) pendiente(s) de título**")
+        st.markdown(f"**{len(sin_titulo)} vídeo(s) pendiente(s) de título**")
     with col2:
         save_all = st.button("💾 Guardar todos", type="primary", use_container_width=True)
-    
-    st.markdown("---")
     
     # Recopilar datos
     videos_data = {}
     
-    for idx, row in pending_df.iterrows():
-        video_id = f"{idx}_{row['Nombre archivo']}"
-        is_saved = video_id in st.session_state.saved_videos
-        
-        # Estilo diferente si está guardado
-        if is_saved:
-            st.markdown(f"""
-            <div style="background: #e8f5e9; padding: 12px 15px; border-radius: 8px; border-left: 4px solid #4caf50; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                    <span style="color: #2e7d32; font-weight: bold;">✅ Guardado</span>
-                    <span style="margin-left: 10px;">📹 {row['Nombre archivo']}</span>
-                </div>
-                <small style="color: #666;">Se procesará en el próximo ciclo</small>
-            </div>
-            """, unsafe_allow_html=True)
-            continue  # Saltar al siguiente vídeo
+    for idx, row in sin_titulo.iterrows():
+        fecha_subida = row.get('Fecha subida', '') if 'Fecha subida' in row else ''
+        tiempo_esperando = format_relative_date(fecha_subida) if fecha_subida else ""
         
         col_name, col_title, col_desc, col_preview, col_btn = st.columns([2, 2.5, 2.5, 0.5, 0.5])
         
         with col_name:
-            st.markdown(f"📹 **{row['Nombre archivo'][:20]}{'...' if len(row['Nombre archivo']) > 20 else ''}**")
+            nombre_corto = row['Nombre archivo'][:20] + ('...' if len(row['Nombre archivo']) > 20 else '')
+            st.markdown(f"📹 **{nombre_corto}**")
+            if tiempo_esperando:
+                st.markdown(f"<small style='color: #999;'>⏳ {tiempo_esperando}</small>", unsafe_allow_html=True)
         
         with col_title:
             titulo = st.text_input("Título", key=f"t_{idx}", placeholder="Título del Short...", label_visibility="collapsed")
@@ -575,8 +650,8 @@ def render_edit_tab(sheets_service, config, df):
             if st.button("✓", key=f"s_{idx}", help="Guardar este vídeo"):
                 if titulo.strip():
                     if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
-                        st.session_state.saved_videos.add(video_id)
-                        st.toast(f"✅ Guardado")
+                        st.toast(f"✅ Guardado - entrará en cola")
+                        time.sleep(0.3)
                         st.rerun()
                     else:
                         st.toast("❌ Error")
@@ -599,7 +674,7 @@ def render_edit_tab(sheets_service, config, df):
             </div>
             """, unsafe_allow_html=True)
         
-        videos_data[idx] = {'titulo': titulo, 'desc': desc, 'video_id': video_id}
+        videos_data[idx] = {'titulo': titulo, 'desc': desc}
     
     # Guardar todos
     if save_all:
@@ -611,25 +686,17 @@ def render_edit_tab(sheets_service, config, df):
             saved = 0
             for idx, data in valid.items():
                 if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, data['titulo'], data['desc']):
-                    st.session_state.saved_videos.add(data['video_id'])
                     saved += 1
             
-            st.success(f"✅ {saved} vídeo(s) guardado(s)")
+            st.success(f"✅ {saved} vídeo(s) guardado(s) - entrarán en cola")
             time.sleep(0.5)
-            st.rerun()
-    
-    # Botón para refrescar y quitar los guardados de la vista
-    if st.session_state.saved_videos:
-        st.markdown("---")
-        if st.button("🔄 Actualizar lista (quitar guardados)"):
-            st.session_state.saved_videos.clear()
             st.rerun()
 
 
 def render_history_tab(df):
     st.markdown("### 📊 Vídeos publicados en YouTube")
     
-    done_df = df[df['Estado'].str.contains('Subido', case=False, na=False)]
+    done_df = df[df['Estado'].str.contains('Subido', case=False, na=False)].copy()
     
     if done_df.empty:
         st.markdown("""
@@ -648,15 +715,23 @@ def render_history_tab(df):
     """, unsafe_allow_html=True)
     
     for _, row in done_df.iterrows():
+        fecha_pub = row.get('Fecha publicación', '') if 'Fecha publicación' in row else ''
+        fecha_relativa = format_relative_date(fecha_pub) if fecha_pub else ""
+        fecha_corta = format_date_short(fecha_pub) if fecha_pub else ""
+        
         st.markdown(f"""
         <div class="card card-green">
             <div style="display: flex; justify-content: space-between; align-items: start;">
-                <div>
+                <div style="flex: 1;">
                     <strong style="font-size: 1.1rem;">{row['Título']}</strong>
                     <div style="color: #666; font-size: 0.85rem; margin-top: 5px;">📁 {row['Nombre archivo']}</div>
                     <div style="color: #888; font-size: 0.85rem;">{row['Descripción'][:80]}{'...' if len(row['Descripción']) > 80 else ''}</div>
                 </div>
-                <span class="badge badge-done">✅ Publicado</span>
+                <div style="text-align: right;">
+                    <span class="badge badge-done">✅ Publicado</span>
+                    {f'<div style="color: #666; font-size: 0.8rem; margin-top: 8px;">📅 {fecha_relativa}</div>' if fecha_relativa else ''}
+                    {f'<div style="color: #999; font-size: 0.75rem;">{fecha_corta}</div>' if fecha_corta else ''}
+                </div>
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -689,6 +764,8 @@ def render_logs_tab(df, drive_service, config):
         
         for idx, row in error_df.iterrows():
             error_msg = row['Estado']
+            fecha_subida = row.get('Fecha subida', '') if 'Fecha subida' in row else ''
+            tiempo_en_error = format_relative_date(fecha_subida) if fecha_subida else ""
             
             # Detectar tipo de error
             if 'uploadLimitExceeded' in error_msg or 'exceeded' in error_msg.lower():
@@ -710,9 +787,12 @@ def render_logs_tab(df, drive_service, config):
             
             st.markdown(f"""
             <div class="card card-red">
-                <div style="margin-bottom: 10px;">
-                    <span class="badge badge-error">{error_type}</span>
-                    <strong style="margin-left: 10px;">📹 {row['Nombre archivo']}</strong>
+                <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span class="badge badge-error">{error_type}</span>
+                        <strong style="margin-left: 10px;">📹 {row['Nombre archivo']}</strong>
+                    </div>
+                    {f'<small style="color: #999;">🕐 Error {tiempo_en_error}</small>' if tiempo_en_error else ''}
                 </div>
                 <div style="background: #fff5f5; padding: 10px; border-radius: 8px; margin: 10px 0;">
                     <strong>{icon} Solución:</strong> {solution}
