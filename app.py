@@ -525,41 +525,227 @@ def render_edit_tab(sheets_service, config, df):
         """, unsafe_allow_html=True)
         return
     
+    # Inicializar estado para borradores
+    if 'drafts' not in st.session_state:
+        st.session_state.drafts = {}
+    if 'saved_status' not in st.session_state:
+        st.session_state.saved_status = {}
+    
+    # Hashtags sugeridos
+    hashtags_populares = ["#Shorts", "#Viral", "#Trending", "#FYP", "#Funny", "#Tutorial", "#Tips", "#Hack", "#DIY", "#Satisfying"]
+    
     st.markdown(f"**{len(pending_df)} vídeo(s) esperando título:**")
     
+    # Botón guardar todos arriba
+    col_header1, col_header2 = st.columns([3, 1])
+    with col_header2:
+        save_all_btn = st.button("💾 Guardar todos", type="primary", use_container_width=True)
+    
+    # Recopilar datos de todos los vídeos
+    all_videos_data = {}
+    
     for idx, row in pending_df.iterrows():
+        video_key = f"video_{idx}"
+        
+        # Cargar borrador si existe
+        draft_titulo = st.session_state.drafts.get(f"{video_key}_titulo", row['Título'])
+        draft_desc = st.session_state.drafts.get(f"{video_key}_desc", row['Descripción'])
+        
+        # Estado de guardado
+        save_status = st.session_state.saved_status.get(video_key, None)
+        
+        # Determinar estado visual
+        if save_status == "saved":
+            border_color = "#4caf50"
+            status_badge = '<span class="badge badge-done">✅ Guardado</span>'
+        elif save_status == "error":
+            border_color = "#f44336"
+            status_badge = '<span class="badge badge-error">❌ Error</span>'
+        elif draft_titulo and draft_titulo != row['Título']:
+            border_color = "#ff9800"
+            status_badge = '<span class="badge badge-pending">📝 Sin guardar</span>'
+        else:
+            border_color = "#1a73e8"
+            status_badge = '<span class="badge badge-pending">⏳ Pendiente</span>'
+        
         st.markdown(f"""
-        <div class="video-item">
-            <span class="badge badge-pending">⏳ Pendiente</span>
+        <div class="video-item" style="border-left: 4px solid {border_color};">
+            {status_badge}
             <strong style="margin-left: 10px;">📹 {row['Nombre archivo']}</strong>
         </div>
         """, unsafe_allow_html=True)
         
-        col1, col2, col3 = st.columns([2, 2, 1])
+        col1, col2 = st.columns(2)
         
         with col1:
-            titulo = st.text_input("Título", value=row['Título'], key=f"t_{idx}", 
-                                   max_chars=100, placeholder="Escribe un título llamativo...")
+            titulo = st.text_input(
+                "Título *", 
+                value=draft_titulo, 
+                key=f"t_{idx}", 
+                max_chars=100, 
+                placeholder="Escribe un título llamativo...",
+                help="Máximo 100 caracteres. Recomendado: 50-70 caracteres"
+            )
+            
+            # Guardar borrador automáticamente
+            st.session_state.drafts[f"{video_key}_titulo"] = titulo
+            
+            # Validaciones del título
             chars = len(titulo)
-            color = "char-ok" if chars <= 70 else "char-warn" if chars <= 90 else "char-bad"
-            st.markdown(f'<div class="char-count {color}">{chars}/100</div>', unsafe_allow_html=True)
+            validations = []
+            
+            if chars == 0:
+                validations.append(("❌", "El título es obligatorio", "bad"))
+            elif chars < 20:
+                validations.append(("⚠️", f"Muy corto ({chars}/100) - Añade más detalle", "warn"))
+            elif chars <= 70:
+                validations.append(("✅", f"Longitud ideal ({chars}/100)", "ok"))
+            elif chars <= 90:
+                validations.append(("⚠️", f"Un poco largo ({chars}/100)", "warn"))
+            else:
+                validations.append(("🔴", f"Muy largo ({chars}/100)", "bad"))
+            
+            # Mostrar validaciones
+            for icon, msg, status in validations:
+                color = {"ok": "#4caf50", "warn": "#ff9800", "bad": "#f44336"}[status]
+                st.markdown(f'<small style="color: {color};">{icon} {msg}</small>', unsafe_allow_html=True)
         
         with col2:
-            desc = st.text_input("Descripción", value=row['Descripción'], key=f"d_{idx}",
-                                placeholder="Descripción con #hashtags...")
+            desc = st.text_area(
+                "Descripción", 
+                value=draft_desc, 
+                key=f"d_{idx}",
+                placeholder="Añade descripción y hashtags...",
+                height=100,
+                help="Incluye hashtags para mejor alcance"
+            )
+            
+            # Guardar borrador automáticamente
+            st.session_state.drafts[f"{video_key}_desc"] = desc
+            
+            # Validar hashtags
+            hashtag_count = desc.count('#')
+            if hashtag_count == 0:
+                st.markdown('<small style="color: #ff9800;">⚠️ Añade hashtags para mejor alcance</small>', unsafe_allow_html=True)
+            elif hashtag_count < 3:
+                st.markdown(f'<small style="color: #1a73e8;">💡 {hashtag_count} hashtag(s) - Recomendado: 3-5</small>', unsafe_allow_html=True)
+            else:
+                st.markdown(f'<small style="color: #4caf50;">✅ {hashtag_count} hashtags</small>', unsafe_allow_html=True)
         
-        with col3:
-            st.write("")  # Espaciado
+        # Hashtags sugeridos
+        st.markdown("**Hashtags rápidos:** <small>(clic para añadir)</small>", unsafe_allow_html=True)
+        hashtag_cols = st.columns(10)
+        for i, tag in enumerate(hashtags_populares):
+            with hashtag_cols[i]:
+                if st.button(tag, key=f"hash_{idx}_{i}", use_container_width=True):
+                    # Añadir hashtag a la descripción
+                    new_desc = desc + (" " if desc else "") + tag
+                    st.session_state.drafts[f"{video_key}_desc"] = new_desc
+                    st.rerun()
+        
+        # Previsualización
+        with st.expander("👁️ Previsualizar cómo se verá"):
+            st.markdown(f"""
+            <div style="background: #000; color: #fff; padding: 20px; border-radius: 10px; max-width: 350px;">
+                <div style="background: #333; height: 400px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 15px;">
+                    <span style="font-size: 3rem;">📹</span>
+                </div>
+                <div style="font-weight: bold; font-size: 1rem; margin-bottom: 8px;">
+                    {titulo if titulo else '<span style="color: #666;">Sin título...</span>'}
+                </div>
+                <div style="font-size: 0.85rem; color: #aaa;">
+                    {desc[:150] + '...' if len(desc) > 150 else desc if desc else '<span style="color: #666;">Sin descripción...</span>'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Botones de acción
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+        
+        with col_btn1:
             if st.button("💾 Guardar", key=f"s_{idx}", use_container_width=True):
                 if titulo.strip():
                     if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
-                        st.toast("✅ Guardado")
-                        time.sleep(0.3)
+                        st.session_state.saved_status[video_key] = "saved"
+                        # Limpiar borrador
+                        st.session_state.drafts.pop(f"{video_key}_titulo", None)
+                        st.session_state.drafts.pop(f"{video_key}_desc", None)
+                        st.toast(f"✅ '{titulo[:30]}...' guardado")
+                        time.sleep(0.5)
                         st.rerun()
+                    else:
+                        st.session_state.saved_status[video_key] = "error"
+                        st.toast("❌ Error al guardar")
                 else:
                     st.toast("⚠️ El título es obligatorio")
         
+        with col_btn2:
+            if st.button("🗑️ Limpiar", key=f"clear_{idx}", use_container_width=True):
+                st.session_state.drafts[f"{video_key}_titulo"] = ""
+                st.session_state.drafts[f"{video_key}_desc"] = ""
+                st.rerun()
+        
+        with col_btn3:
+            # Indicador de estado
+            if titulo.strip():
+                st.markdown("""
+                <div style="background: #e8f5e9; padding: 8px 15px; border-radius: 5px; text-align: center; color: #2e7d32;">
+                    ✅ Listo para procesar
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown("""
+                <div style="background: #fff3e0; padding: 8px 15px; border-radius: 5px; text-align: center; color: #e65100;">
+                    ⏳ Falta título
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Guardar datos para "Guardar todos"
+        all_videos_data[idx] = {
+            'titulo': titulo,
+            'desc': desc,
+            'video_key': video_key
+        }
+        
         st.markdown("---")
+    
+    # Procesar "Guardar todos"
+    if save_all_btn:
+        saved_count = 0
+        error_count = 0
+        
+        progress = st.progress(0)
+        status_text = st.empty()
+        
+        valid_videos = {k: v for k, v in all_videos_data.items() if v['titulo'].strip()}
+        
+        if not valid_videos:
+            st.warning("⚠️ No hay vídeos con título para guardar")
+        else:
+            for i, (idx, data) in enumerate(valid_videos.items()):
+                status_text.text(f"Guardando {i+1}/{len(valid_videos)}...")
+                
+                if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], 
+                                   idx + 2, data['titulo'], data['desc']):
+                    st.session_state.saved_status[data['video_key']] = "saved"
+                    saved_count += 1
+                else:
+                    st.session_state.saved_status[data['video_key']] = "error"
+                    error_count += 1
+                
+                progress.progress((i + 1) / len(valid_videos))
+            
+            status_text.empty()
+            progress.empty()
+            
+            if error_count == 0:
+                st.success(f"🎉 ¡{saved_count} vídeo(s) guardado(s) correctamente!")
+                st.balloons()
+            else:
+                st.warning(f"⚠️ {saved_count} guardados, {error_count} con error")
+            
+            time.sleep(1)
+            st.rerun()
 
 
 def render_history_tab(df):
