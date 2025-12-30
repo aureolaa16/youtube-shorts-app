@@ -325,6 +325,13 @@ def render_edit_tab(sheets_service, config, df):
         if st.button("🔄 Actualizar", key="refresh_edit", use_container_width=True):
             st.rerun()
     
+    # Mostrar mensaje si acaba de guardar
+    if st.session_state.get('just_saved_to_queue', False):
+        saved_count = st.session_state.get('saved_count', 0)
+        st.success(f"✅ **¡{saved_count} vídeo(s) guardado(s)!** Ya están en la cola de procesamiento.")
+        st.info("👉 Ve a la pestaña **'🚀 En cola'** para ver el estado de tus vídeos.")
+        st.session_state.just_saved_to_queue = False
+    
     # Solo vídeos SIN título (no subidos, no error)
     sin_titulo = df[
         (df['Título'].str.strip() == '') & 
@@ -338,10 +345,12 @@ def render_edit_tab(sheets_service, config, df):
     
     st.warning(f"📝 **{len(sin_titulo)} vídeo(s)** esperando título. Rellena los datos para que se procesen.")
     
-    # Botón guardar todos
-    col1, col2 = st.columns([3, 1])
+    # Botones de acción
+    col1, col2, col3 = st.columns([2, 1, 1])
     with col2:
         save_all = st.button("💾 Guardar todos", type="primary", use_container_width=True)
+    with col3:
+        delete_mode = st.checkbox("🗑️ Modo borrar", help="Activa para poder borrar vídeos")
     
     st.divider()
     
@@ -355,44 +364,64 @@ def render_edit_tab(sheets_service, config, df):
         </div>
         """, unsafe_allow_html=True)
         
-        col_title, col_desc, col_preview, col_btn = st.columns([3, 2.5, 0.5, 1])
+        if delete_mode:
+            col_title_input, col_desc, col_delete = st.columns([3, 2.5, 1])
+        else:
+            col_title_input, col_desc, col_preview, col_btn = st.columns([3, 2.5, 0.5, 1])
         
-        with col_title:
+        with col_title_input:
             titulo = st.text_input("Título *", key=f"t_{idx}", placeholder="Escribe el título del Short...", label_visibility="collapsed")
         
         with col_desc:
             desc = st.text_input("Descripción", key=f"d_{idx}", placeholder="Descripción (opcional)", label_visibility="collapsed")
         
-        with col_preview:
-            preview = st.checkbox("👁️", key=f"p_{idx}", help="Previsualizar")
-        
-        with col_btn:
-            if st.button("💾", key=f"s_{idx}", help="Guardar este vídeo", use_container_width=True):
-                if titulo.strip():
-                    if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
-                        st.toast("✅ ¡Guardado! El vídeo pasó a la cola.")
-                        time.sleep(0.5)
+        if delete_mode:
+            with col_delete:
+                if st.button("🗑️", key=f"del_{idx}", help="Borrar este vídeo", use_container_width=True):
+                    # Borrar fila del sheet (poner estado como "Borrado")
+                    try:
+                        sheets_service.spreadsheets().values().update(
+                            spreadsheetId=config['spreadsheet_id'],
+                            range=f"'{config['sheet_name']}'!D{idx + 2}",
+                            valueInputOption="RAW",
+                            body={"values": [["Borrado"]]}
+                        ).execute()
+                        st.toast("🗑️ Vídeo borrado")
+                        time.sleep(0.3)
                         st.rerun()
+                    except:
+                        st.toast("❌ Error al borrar")
+        else:
+            with col_preview:
+                preview = st.checkbox("👁️", key=f"p_{idx}", help="Previsualizar")
+            
+            with col_btn:
+                if st.button("💾", key=f"s_{idx}", help="Guardar este vídeo", use_container_width=True):
+                    if titulo.strip():
+                        if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
+                            st.session_state.just_saved_to_queue = True
+                            st.session_state.saved_count = 1
+                            st.rerun()
+                        else:
+                            st.toast("❌ Error al guardar")
                     else:
-                        st.toast("❌ Error al guardar")
-                else:
-                    st.toast("⚠️ El título es obligatorio")
-        
-        # Previsualización
-        if preview:
-            st.markdown(f"""
-            <div style="background: #000; color: #fff; padding: 15px; border-radius: 12px; max-width: 300px; margin: 10px 0 20px 0;">
-                <div style="background: #222; height: 350px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
-                    <span style="font-size: 3rem;">📹</span>
+                        st.toast("⚠️ El título es obligatorio")
+            
+            # Previsualización
+            if preview:
+                st.markdown(f"""
+                <div style="background: #000; color: #fff; padding: 15px; border-radius: 12px; max-width: 300px; margin: 10px 0 20px 0;">
+                    <div style="background: #222; height: 350px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+                        <span style="font-size: 3rem;">📹</span>
+                    </div>
+                    <div style="font-weight: bold; font-size: 1rem; margin-bottom: 5px;">
+                        {titulo if titulo else '<span style="color: #666;">Sin título...</span>'}
+                    </div>
+                    <div style="font-size: 0.85rem; color: #aaa;">
+                        {desc[:100] + '...' if desc and len(desc) > 100 else desc if desc else '<span style="color: #555;">Sin descripción...</span>'}
+                    </div>
                 </div>
-                <div style="font-weight: bold; font-size: 1rem; margin-bottom: 5px;">
-                    {titulo if titulo else '<span style="color: #666;">Sin título...</span>'}
-                </div>
-                <div style="font-size: 0.85rem; color: #aaa;">
-                    {desc[:100] + '...' if desc and len(desc) > 100 else desc if desc else '<span style="color: #555;">Sin descripción...</span>'}
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
         
         videos_data[idx] = {'titulo': titulo, 'desc': desc}
         st.write("")
@@ -407,8 +436,8 @@ def render_edit_tab(sheets_service, config, df):
             for idx, data in valid.items():
                 if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, data['titulo'], data['desc']):
                     saved += 1
-            st.success(f"✅ {saved} vídeo(s) guardado(s) y movido(s) a la cola")
-            time.sleep(0.5)
+            st.session_state.just_saved_to_queue = True
+            st.session_state.saved_count = saved
             st.rerun()
 
 
@@ -420,6 +449,12 @@ def render_queue_tab(df):
     with col_refresh:
         if st.button("🔄 Actualizar", key="refresh_queue", use_container_width=True):
             st.rerun()
+    
+    # Mostrar mensaje si hay videos recién subidos a YouTube
+    if st.session_state.get('new_uploads_to_youtube', 0) > 0:
+        count = st.session_state.new_uploads_to_youtube
+        st.success(f"🎉 **¡{count} vídeo(s) subido(s) a YouTube!** Revisa el historial para ver los enlaces.")
+        st.session_state.new_uploads_to_youtube = 0
     
     # Tiempo hasta próximo procesamiento
     seconds_left = get_next_process_time()
@@ -680,8 +715,7 @@ def main():
     
     if subidos > st.session_state.last_subidos_count:
         nuevos = subidos - st.session_state.last_subidos_count
-        st.balloons()
-        st.success(f"🎉 **¡{nuevos} vídeo(s) nuevo(s) subido(s) a YouTube!** Revisa el historial para ver los enlaces.")
+        st.session_state.new_uploads_to_youtube = nuevos
         st.session_state.last_subidos_count = subidos
     
     # Tabs
