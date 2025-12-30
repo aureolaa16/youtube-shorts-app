@@ -524,6 +524,10 @@ def render_edit_tab(sheets_service, config, df):
         """, unsafe_allow_html=True)
         return
     
+    # Inicializar estado de guardado
+    if 'saved_videos' not in st.session_state:
+        st.session_state.saved_videos = set()
+    
     # Header con contador y botón guardar todos
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -537,6 +541,22 @@ def render_edit_tab(sheets_service, config, df):
     videos_data = {}
     
     for idx, row in pending_df.iterrows():
+        video_id = f"{idx}_{row['Nombre archivo']}"
+        is_saved = video_id in st.session_state.saved_videos
+        
+        # Estilo diferente si está guardado
+        if is_saved:
+            st.markdown(f"""
+            <div style="background: #e8f5e9; padding: 12px 15px; border-radius: 8px; border-left: 4px solid #4caf50; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <span style="color: #2e7d32; font-weight: bold;">✅ Guardado</span>
+                    <span style="margin-left: 10px;">📹 {row['Nombre archivo']}</span>
+                </div>
+                <small style="color: #666;">Se procesará en el próximo ciclo</small>
+            </div>
+            """, unsafe_allow_html=True)
+            continue  # Saltar al siguiente vídeo
+        
         col_name, col_title, col_desc, col_preview, col_btn = st.columns([2, 2.5, 2.5, 0.5, 0.5])
         
         with col_name:
@@ -555,8 +575,8 @@ def render_edit_tab(sheets_service, config, df):
             if st.button("✓", key=f"s_{idx}", help="Guardar este vídeo"):
                 if titulo.strip():
                     if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
+                        st.session_state.saved_videos.add(video_id)
                         st.toast(f"✅ Guardado")
-                        time.sleep(0.3)
                         st.rerun()
                     else:
                         st.toast("❌ Error")
@@ -579,7 +599,7 @@ def render_edit_tab(sheets_service, config, df):
             </div>
             """, unsafe_allow_html=True)
         
-        videos_data[idx] = {'titulo': titulo, 'desc': desc}
+        videos_data[idx] = {'titulo': titulo, 'desc': desc, 'video_id': video_id}
     
     # Guardar todos
     if save_all:
@@ -591,10 +611,18 @@ def render_edit_tab(sheets_service, config, df):
             saved = 0
             for idx, data in valid.items():
                 if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, data['titulo'], data['desc']):
+                    st.session_state.saved_videos.add(data['video_id'])
                     saved += 1
             
             st.success(f"✅ {saved} vídeo(s) guardado(s)")
             time.sleep(0.5)
+            st.rerun()
+    
+    # Botón para refrescar y quitar los guardados de la vista
+    if st.session_state.saved_videos:
+        st.markdown("---")
+        if st.button("🔄 Actualizar lista (quitar guardados)"):
+            st.session_state.saved_videos.clear()
             st.rerun()
 
 
