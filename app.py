@@ -1,9 +1,8 @@
 """
-YouTube Shorts Automation - Web App v6
-- Flujo de trabajo visual
-- Tiempos estimados
-- Mejor UX en rellenar datos
-- Estados claros
+YouTube Shorts Automation - Web App v7
+- Logs y errores detallados
+- Sincronización clara
+- Flujo intuitivo
 """
 
 import streamlit as st
@@ -15,7 +14,7 @@ import time
 from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from googleapiclient.http import MediaFileUpload
 
 # Configuración de la página
 st.set_page_config(
@@ -57,7 +56,7 @@ def get_credentials():
 # ============== ESTILOS ==============
 st.markdown("""
 <style>
-    /* Header */
+    /* General */
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
@@ -76,298 +75,179 @@ st.markdown("""
         justify-content: space-between;
         align-items: center;
         background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
-        padding: 25px;
+        padding: 20px;
         border-radius: 15px;
         margin-bottom: 25px;
+        flex-wrap: wrap;
+        gap: 10px;
     }
     .workflow-step {
         text-align: center;
         flex: 1;
-        padding: 15px;
-        position: relative;
+        min-width: 120px;
+        padding: 10px;
     }
     .workflow-step-icon {
-        width: 60px;
-        height: 60px;
+        width: 50px;
+        height: 50px;
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin: 0 auto 10px;
-        font-size: 1.5rem;
-        transition: all 0.3s;
+        margin: 0 auto 8px;
+        font-size: 1.3rem;
     }
-    .workflow-step-active .workflow-step-icon {
+    .step-active .workflow-step-icon {
         background: linear-gradient(135deg, #1a73e8, #0d47a1);
         color: white;
         box-shadow: 0 4px 15px rgba(26, 115, 232, 0.4);
     }
-    .workflow-step-completed .workflow-step-icon {
+    .step-done .workflow-step-icon {
         background: linear-gradient(135deg, #4caf50, #2e7d32);
         color: white;
     }
-    .workflow-step-pending .workflow-step-icon {
+    .step-pending .workflow-step-icon {
         background: #e0e0e0;
         color: #999;
     }
+    .step-error .workflow-step-icon {
+        background: linear-gradient(135deg, #f44336, #c62828);
+        color: white;
+    }
     .workflow-step-title {
         font-weight: 600;
-        font-size: 0.9rem;
-        margin-bottom: 5px;
+        font-size: 0.85rem;
+        margin-bottom: 3px;
     }
-    .workflow-step-desc {
+    .workflow-step-count {
         font-size: 0.75rem;
         color: #666;
     }
     .workflow-arrow {
         color: #ccc;
-        font-size: 1.5rem;
-        padding: 0 10px;
+        font-size: 1.2rem;
     }
     
     /* Cards */
-    .info-card {
+    .card {
         background: white;
         border-radius: 12px;
         padding: 20px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         margin-bottom: 15px;
-        border-left: 4px solid #1a73e8;
     }
-    .success-card {
-        border-left-color: #4caf50;
-        background: #f8fdf8;
-    }
-    .warning-card {
-        border-left-color: #ff9800;
-        background: #fffdf5;
-    }
-    .error-card {
-        border-left-color: #f44336;
-        background: #fef8f8;
-    }
-    
-    /* Video Card */
-    .video-card {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
-        margin: 15px 0;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-        transition: all 0.3s;
-        border: 1px solid #eee;
-    }
-    .video-card:hover {
-        box-shadow: 0 6px 20px rgba(0,0,0,0.12);
-        transform: translateY(-2px);
-    }
-    .video-card-header {
-        display: flex;
-        align-items: center;
-        margin-bottom: 15px;
-        padding-bottom: 15px;
-        border-bottom: 1px solid #f0f0f0;
-    }
-    .video-icon {
-        font-size: 2.5rem;
-        margin-right: 15px;
-    }
-    .video-info h3 {
-        margin: 0 0 5px 0;
-        font-size: 1.1rem;
-        color: #333;
-    }
-    .video-meta {
-        font-size: 0.85rem;
-        color: #888;
-    }
+    .card-blue { border-left: 4px solid #1a73e8; }
+    .card-green { border-left: 4px solid #4caf50; }
+    .card-orange { border-left: 4px solid #ff9800; }
+    .card-red { border-left: 4px solid #f44336; }
+    .card-gray { border-left: 4px solid #9e9e9e; }
     
     /* Status Badges */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        padding: 6px 12px;
+    .badge {
+        display: inline-block;
+        padding: 5px 12px;
         border-radius: 20px;
         font-size: 0.8rem;
         font-weight: 500;
     }
-    .status-pending {
-        background: #fff3e0;
-        color: #e65100;
-    }
-    .status-ready {
-        background: #e3f2fd;
-        color: #1565c0;
-    }
-    .status-processing {
-        background: #f3e5f5;
-        color: #7b1fa2;
-        animation: pulse 1.5s infinite;
-    }
-    .status-completed {
-        background: #e8f5e9;
-        color: #2e7d32;
-    }
-    .status-error {
-        background: #ffebee;
-        color: #c62828;
-    }
+    .badge-pending { background: #fff3e0; color: #e65100; }
+    .badge-ready { background: #e3f2fd; color: #1565c0; }
+    .badge-done { background: #e8f5e9; color: #2e7d32; }
+    .badge-error { background: #ffebee; color: #c62828; }
+    .badge-processing { background: #f3e5f5; color: #7b1fa2; }
     
-    @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50% { opacity: 0.6; }
-    }
-    
-    /* Time Indicator */
-    .time-indicator {
-        background: linear-gradient(135deg, #e3f2fd, #bbdefb);
-        padding: 15px 20px;
-        border-radius: 10px;
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        margin: 15px 0;
-    }
-    .time-icon {
-        font-size: 2rem;
-    }
-    .time-info h4 {
-        margin: 0;
-        font-size: 0.9rem;
-        color: #1565c0;
-    }
-    .time-info p {
-        margin: 5px 0 0 0;
-        font-size: 0.8rem;
-        color: #666;
-    }
-    
-    /* Character Counter */
-    .char-counter {
-        font-size: 0.75rem;
-        text-align: right;
-        margin-top: 5px;
-    }
-    .char-ok { color: #4caf50; }
-    .char-warning { color: #ff9800; }
-    .char-error { color: #f44336; }
-    
-    /* Tips Box */
-    .tips-box {
-        background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+    /* Info boxes */
+    .info-box {
         padding: 15px 20px;
         border-radius: 10px;
         margin: 15px 0;
     }
-    .tips-box h4 {
-        margin: 0 0 10px 0;
-        color: #2e7d32;
-        font-size: 0.9rem;
+    .info-blue { background: #e3f2fd; border-left: 4px solid #1976d2; }
+    .info-green { background: #e8f5e9; border-left: 4px solid #4caf50; }
+    .info-orange { background: #fff3e0; border-left: 4px solid #ff9800; }
+    .info-red { background: #ffebee; border-left: 4px solid #f44336; }
+    
+    /* Video item */
+    .video-item {
+        background: white;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+        border: 1px solid #eee;
+        transition: all 0.2s;
     }
-    .tips-box ul {
-        margin: 0;
-        padding-left: 20px;
-        color: #555;
-        font-size: 0.85rem;
+    .video-item:hover {
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
     
     /* Metrics */
-    .metric-card {
-        background: white;
-        border-radius: 12px;
-        padding: 20px;
+    .metric {
         text-align: center;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 15px;
+        background: white;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.06);
     }
     .metric-value {
-        font-size: 2rem;
+        font-size: 1.8rem;
         font-weight: bold;
-        margin-bottom: 5px;
     }
     .metric-label {
-        font-size: 0.85rem;
-        color: #666;
-    }
-    
-    /* Empty State */
-    .empty-state {
-        text-align: center;
-        padding: 50px 20px;
-        background: #fafafa;
-        border-radius: 12px;
-        border: 2px dashed #e0e0e0;
-    }
-    .empty-state-icon {
-        font-size: 4rem;
-        margin-bottom: 15px;
-    }
-    .empty-state h3 {
-        margin: 0 0 10px 0;
-        color: #666;
-    }
-    .empty-state p {
-        color: #999;
-        font-size: 0.9rem;
-    }
-    
-    /* Progress Upload */
-    .upload-progress {
-        background: #f5f5f5;
-        border-radius: 10px;
-        padding: 20px;
-        margin: 15px 0;
-    }
-    .upload-file-item {
-        background: white;
-        border-radius: 8px;
-        padding: 15px;
-        margin: 10px 0;
-        border-left: 4px solid #1a73e8;
-    }
-    .upload-file-item.completed {
-        border-left-color: #4caf50;
-    }
-    .upload-file-item.error {
-        border-left-color: #f44336;
-    }
-    
-    /* Hashtag Suggestions */
-    .hashtag-container {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 10px;
-    }
-    .hashtag {
-        background: #e3f2fd;
-        color: #1565c0;
-        padding: 5px 12px;
-        border-radius: 15px;
         font-size: 0.8rem;
-        cursor: pointer;
-        transition: all 0.2s;
+        color: #666;
+        margin-top: 5px;
     }
-    .hashtag:hover {
-        background: #1565c0;
-        color: white;
+    
+    /* Log entry */
+    .log-entry {
+        padding: 12px 15px;
+        border-radius: 8px;
+        margin: 8px 0;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
     }
+    .log-success { background: #e8f5e9; }
+    .log-error { background: #ffebee; }
+    .log-warning { background: #fff3e0; }
+    .log-info { background: #e3f2fd; }
     
     /* Tabs */
     .stTabs [data-baseweb="tab-list"] {
         gap: 5px;
         background: #f5f5f5;
         padding: 5px;
-        border-radius: 12px;
+        border-radius: 10px;
     }
     .stTabs [data-baseweb="tab"] {
-        padding: 12px 24px;
+        padding: 10px 20px;
         border-radius: 8px;
-        font-weight: 500;
     }
     .stTabs [aria-selected="true"] {
         background: white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
+    
+    /* Empty state */
+    .empty-state {
+        text-align: center;
+        padding: 40px;
+        background: #fafafa;
+        border-radius: 12px;
+        border: 2px dashed #ddd;
+    }
+    .empty-icon { font-size: 3rem; margin-bottom: 10px; }
+    
+    /* Character counter */
+    .char-count {
+        font-size: 0.75rem;
+        text-align: right;
+        margin-top: 3px;
+    }
+    .char-ok { color: #4caf50; }
+    .char-warn { color: #ff9800; }
+    .char-bad { color: #f44336; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -390,7 +270,6 @@ def list_videos_in_folder(drive_service, folder_id):
         ).execute()
         return results.get('files', [])
     except Exception as e:
-        st.error(f"Error listando vídeos: {e}")
         return []
 
 def get_sheet_data(sheets_service, spreadsheet_id, sheet_name):
@@ -413,16 +292,14 @@ def get_sheet_data(sheets_service, spreadsheet_id, sheet_name):
             data.append(row[:5])
         
         return pd.DataFrame(data, columns=headers)
-    except Exception as e:
-        st.error(f"Error: {e}")
+    except:
         return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL'])
 
 def add_row_to_sheet(sheets_service, spreadsheet_id, sheet_name, row_data):
     try:
-        range_name = f"'{sheet_name}'!A:E"
         sheets_service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
-            range=range_name,
+            range=f"'{sheet_name}'!A:E",
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [row_data]}
@@ -433,10 +310,9 @@ def add_row_to_sheet(sheets_service, spreadsheet_id, sheet_name, row_data):
 
 def update_sheet_row(sheets_service, spreadsheet_id, sheet_name, row_num, titulo, descripcion):
     try:
-        range_name = f"'{sheet_name}'!B{row_num}:C{row_num}"
         sheets_service.spreadsheets().values().update(
             spreadsheetId=spreadsheet_id,
-            range=range_name,
+            range=f"'{sheet_name}'!B{row_num}:C{row_num}",
             valueInputOption="RAW",
             body={"values": [[titulo, descripcion]]}
         ).execute()
@@ -444,599 +320,614 @@ def update_sheet_row(sheets_service, spreadsheet_id, sheet_name, row_num, titulo
     except:
         return False
 
-def upload_video_to_drive(drive_service, folder_id, file, filename, progress_callback=None):
+def upload_video_to_drive(drive_service, folder_id, file, filename, progress_cb=None):
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1]) as tmp:
             tmp.write(file.getbuffer())
             tmp_path = tmp.name
         
-        file_metadata = {'name': filename, 'parents': [folder_id]}
-        file_size = os.path.getsize(tmp_path)
-        
         media = MediaFileUpload(tmp_path, resumable=True, chunksize=1024*1024)
-        request = drive_service.files().create(body=file_metadata, media_body=media, fields='id, name')
+        request = drive_service.files().create(
+            body={'name': filename, 'parents': [folder_id]},
+            media_body=media,
+            fields='id, name'
+        )
         
         response = None
-        start_time = time.time()
+        start = time.time()
+        file_size = os.path.getsize(tmp_path)
         
         while response is None:
             status, response = request.next_chunk()
-            if status and progress_callback:
-                elapsed = time.time() - start_time
+            if status and progress_cb:
+                elapsed = time.time() - start
                 speed = (status.progress() * file_size) / elapsed if elapsed > 0 else 0
                 remaining = ((1 - status.progress()) * elapsed / status.progress()) if status.progress() > 0 else 0
-                progress_callback(status.progress(), speed, remaining)
+                progress_cb(status.progress(), speed, remaining)
         
         os.unlink(tmp_path)
         return response
     except Exception as e:
-        st.error(f"Error: {e}")
         return None
 
 
 # ============== HELPERS ==============
 
-def format_size(size_bytes):
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    elif size_bytes < 1024*1024:
-        return f"{size_bytes/1024:.1f} KB"
-    else:
-        return f"{size_bytes/(1024*1024):.1f} MB"
+def format_size(b):
+    if b < 1024: return f"{b} B"
+    if b < 1024**2: return f"{b/1024:.1f} KB"
+    return f"{b/1024**2:.1f} MB"
 
-def format_time(seconds):
-    if seconds < 60:
-        return f"{seconds:.0f} seg"
-    else:
-        return f"{seconds/60:.1f} min"
+def format_time(s):
+    if s < 60: return f"{s:.0f}s"
+    return f"{s/60:.1f}min"
 
-def estimate_upload_time(size_bytes):
-    # Estimación basada en 1 MB/s promedio
-    seconds = size_bytes / (1024 * 1024)
-    return max(5, seconds)  # Mínimo 5 segundos
-
-def get_next_process_time():
-    """Calcula cuándo será el próximo procesamiento (cada 5 min)"""
+def get_next_process():
     now = datetime.now()
-    minutes = now.minute
-    next_5 = ((minutes // 5) + 1) * 5
+    next_5 = ((now.minute // 5) + 1) * 5
     if next_5 >= 60:
-        next_time = now.replace(minute=0, second=0) + timedelta(hours=1)
+        target = now.replace(minute=0, second=0) + timedelta(hours=1)
     else:
-        next_time = now.replace(minute=next_5, second=0)
-    diff = (next_time - now).seconds
-    return diff
+        target = now.replace(minute=next_5, second=0)
+    return (target - now).seconds
 
-def get_video_status_info(estado, titulo):
-    """Devuelve información del estado del vídeo"""
-    if 'Subido' in estado:
-        return ('completed', '✅ Publicado', 'Tu Short ya está en YouTube')
-    elif 'Error' in estado:
-        return ('error', '❌ Error', estado)
-    elif titulo.strip():
-        return ('ready', '🚀 Listo', 'Se subirá en el próximo ciclo')
-    else:
-        return ('pending', '✏️ Pendiente', 'Añade título para procesar')
+def get_counts(df):
+    pending = len(df[(df['Título'].str.strip() == '') | df['Estado'].str.contains('Pendiente', case=False, na=True)])
+    ready = len(df[(df['Título'].str.strip() != '') & ~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True)])
+    done = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
+    errors = len(df[df['Estado'].str.contains('Error', case=False, na=False)])
+    return pending, ready, done, errors
 
 
-# ============== COMPONENTES UI ==============
+# ============== UI COMPONENTS ==============
 
-def render_workflow_status(df, videos_in_drive):
-    """Muestra el flujo de trabajo visual"""
-    pending = len(df[(df['Título'].str.strip() == '') | (df['Estado'].str.contains('Pendiente', case=False, na=True))])
-    ready = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido', case=False, na=False)) & (~df['Estado'].str.contains('Error', case=False, na=False)) & (~df['Estado'].str.contains('Pendiente', case=False, na=True))])
-    uploaded = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
+def render_workflow(df, videos_drive):
+    pending, ready, done, errors = get_counts(df)
     
-    # Determinar paso activo
-    if len(videos_in_drive) == 0 and len(df) == 0:
-        active_step = 1
+    # Determinar estado activo
+    if len(videos_drive) == 0 and len(df) == 0:
+        active = 1
     elif pending > 0:
-        active_step = 2
+        active = 2
     elif ready > 0:
-        active_step = 3
+        active = 3
     else:
-        active_step = 4
+        active = 4
+    
+    def step_class(n, count, is_error=False):
+        if is_error and count > 0:
+            return "step-error"
+        if n < active or count > 0 and n == 4:
+            return "step-done"
+        if n == active:
+            return "step-active"
+        return "step-pending"
     
     st.markdown(f"""
     <div class="workflow-container">
-        <div class="workflow-step {'workflow-step-completed' if len(df) > 0 else 'workflow-step-active' if active_step == 1 else 'workflow-step-pending'}">
+        <div class="workflow-step {step_class(1, len(videos_drive))}">
             <div class="workflow-step-icon">📤</div>
-            <div class="workflow-step-title">1. Subir vídeo</div>
-            <div class="workflow-step-desc">{len(videos_in_drive)} en Drive</div>
+            <div class="workflow-step-title">1. Subir</div>
+            <div class="workflow-step-count">{len(videos_drive)} en Drive</div>
         </div>
         <div class="workflow-arrow">→</div>
-        <div class="workflow-step {'workflow-step-completed' if pending == 0 and len(df) > 0 else 'workflow-step-active' if active_step == 2 else 'workflow-step-pending'}">
+        <div class="workflow-step {step_class(2, pending)}">
             <div class="workflow-step-icon">✏️</div>
-            <div class="workflow-step-title">2. Rellenar datos</div>
-            <div class="workflow-step-desc">{pending} pendientes</div>
+            <div class="workflow-step-title">2. Rellenar</div>
+            <div class="workflow-step-count">{pending} sin título</div>
         </div>
         <div class="workflow-arrow">→</div>
-        <div class="workflow-step {'workflow-step-active' if active_step == 3 else 'workflow-step-pending'}">
-            <div class="workflow-step-icon">⚙️</div>
-            <div class="workflow-step-title">3. Procesando</div>
-            <div class="workflow-step-desc">{ready} en cola</div>
+        <div class="workflow-step {step_class(3, ready)}">
+            <div class="workflow-step-icon">⏳</div>
+            <div class="workflow-step-title">3. En cola</div>
+            <div class="workflow-step-count">{ready} listos</div>
         </div>
         <div class="workflow-arrow">→</div>
-        <div class="workflow-step {'workflow-step-completed' if uploaded > 0 else 'workflow-step-pending'}">
-            <div class="workflow-step-icon">🎬</div>
-            <div class="workflow-step-title">4. En YouTube</div>
-            <div class="workflow-step-desc">{uploaded} publicados</div>
+        <div class="workflow-step {step_class(4, done)}">
+            <div class="workflow-step-icon">✅</div>
+            <div class="workflow-step-title">4. Publicado</div>
+            <div class="workflow-step-count">{done} en YouTube</div>
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-def render_time_indicator():
-    """Muestra el tiempo hasta el próximo procesamiento"""
-    next_process = get_next_process_time()
-    minutes = next_process // 60
-    seconds = next_process % 60
-    
-    st.markdown(f"""
-    <div class="time-indicator">
-        <div class="time-icon">⏱️</div>
-        <div class="time-info">
-            <h4>Próximo procesamiento automático</h4>
-            <p>En aproximadamente <strong>{minutes}:{seconds:02d}</strong> minutos</p>
-        </div>
+        {f'<div class="workflow-arrow">⚠️</div><div class="workflow-step step-error"><div class="workflow-step-icon">❌</div><div class="workflow-step-title">Errores</div><div class="workflow-step-count">{errors} fallidos</div></div>' if errors > 0 else ''}
     </div>
     """, unsafe_allow_html=True)
 
 
 def render_upload_tab(drive_service, sheets_service, config):
-    """Tab de subida mejorado"""
+    st.markdown("### 📤 Subir vídeos")
     
-    col1, col2 = st.columns([2, 1])
-    
+    col1, col2 = st.columns([3, 1])
     with col1:
-        st.markdown("### 📤 Subir vídeos")
-        st.markdown("Arrastra tus vídeos aquí. Se guardarán en Drive y podrás añadir título después.")
+        st.markdown("""
+        <div class="info-box info-blue">
+            <strong>💡 ¿Cómo funciona?</strong><br>
+            <small>Sube tus vídeos aquí → Se guardan en Google Drive → Después añades título en la pestaña "Rellenar datos"</small>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
         st.markdown("""
-        <div class="tips-box">
-            <h4>💡 Requisitos para Shorts</h4>
-            <ul>
-                <li>Formato vertical (9:16)</li>
-                <li>Máximo 60 segundos</li>
-                <li>MP4, MOV o AVI</li>
-            </ul>
+        <div class="info-box info-green">
+            <strong>📋 Requisitos</strong><br>
+            <small>• Vertical 9:16<br>• Máx 60 seg<br>• MP4/MOV/AVI</small>
         </div>
         """, unsafe_allow_html=True)
     
-    uploaded_files = st.file_uploader(
-        "Arrastra o selecciona vídeos",
-        type=['mp4', 'mov', 'avi'],
-        accept_multiple_files=True,
-        label_visibility="collapsed"
-    )
+    files = st.file_uploader("Arrastra tus vídeos aquí", type=['mp4', 'mov', 'avi'], accept_multiple_files=True, label_visibility="collapsed")
     
-    if uploaded_files:
-        total_size = sum(f.size for f in uploaded_files)
-        total_time = sum(estimate_upload_time(f.size) for f in uploaded_files)
+    if files:
+        total_size = sum(f.size for f in files)
+        est_time = total_size / (1024 * 1024) * 2  # ~2s por MB
         
         st.markdown(f"""
-        <div class="info-card">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <strong>{len(uploaded_files)} vídeo(s) seleccionado(s)</strong>
-                    <span style="color: #666; margin-left: 15px;">{format_size(total_size)} total</span>
-                </div>
-                <div style="color: #1a73e8;">
-                    ⏱️ Tiempo estimado: ~{format_time(total_time)}
-                </div>
-            </div>
+        <div class="card card-blue">
+            <strong>{len(files)} vídeo(s)</strong> · {format_size(total_size)} · ~{format_time(est_time)} de subida
         </div>
         """, unsafe_allow_html=True)
         
-        for file in uploaded_files:
-            est_time = estimate_upload_time(file.size)
-            st.markdown(f"""
-            <div class="upload-file-item">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <span style="font-size: 1.3rem; margin-right: 10px;">📹</span>
-                        <strong>{file.name}</strong>
-                    </div>
-                    <div style="color: #666; font-size: 0.85rem;">
-                        {format_size(file.size)} · ~{format_time(est_time)}
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
+        for f in files:
+            st.markdown(f"📹 **{f.name}** ({format_size(f.size)})")
         
-        if st.button("🚀 Subir todos a Drive", type="primary", use_container_width=True):
-            progress_container = st.container()
+        if st.button("🚀 Subir a Drive", type="primary", use_container_width=True):
+            progress = st.progress(0)
             
-            with progress_container:
-                overall_progress = st.progress(0)
-                results = []
+            for i, f in enumerate(files):
+                status = st.empty()
+                file_progress = st.progress(0)
                 
-                for i, file in enumerate(uploaded_files):
-                    status_placeholder = st.empty()
-                    progress_placeholder = st.progress(0)
-                    detail_placeholder = st.empty()
-                    
-                    status_placeholder.markdown(f"""
-                    <div class="upload-file-item">
-                        <div style="display: flex; align-items: center;">
-                            <span class="status-badge status-processing">⏳ Subiendo...</span>
-                            <strong style="margin-left: 15px;">{file.name}</strong>
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    def update_progress(progress, speed, remaining):
-                        progress_placeholder.progress(progress)
-                        detail_placeholder.markdown(f"""
-                        <div style="display: flex; justify-content: space-between; color: #666; font-size: 0.8rem; padding: 5px 10px;">
-                            <span>⚡ {format_size(speed)}/s</span>
-                            <span>⏱️ {format_time(remaining)} restante</span>
-                            <span>📊 {progress*100:.0f}%</span>
-                        </div>
-                        """, unsafe_allow_html=True)
-                    
-                    result = upload_video_to_drive(
-                        drive_service, config['folder_videos'],
-                        file, file.name, update_progress
-                    )
-                    
-                    if result:
-                        add_row_to_sheet(sheets_service, config['spreadsheet_id'], 
-                                        config['sheet_name'], [file.name, "", "", "Pendiente de rellenar", ""])
-                        status_placeholder.markdown(f"""
-                        <div class="upload-file-item completed">
-                            <div style="display: flex; align-items: center;">
-                                <span class="status-badge status-completed">✅ Completado</span>
-                                <strong style="margin-left: 15px;">{file.name}</strong>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        results.append(True)
-                    else:
-                        status_placeholder.markdown(f"""
-                        <div class="upload-file-item error">
-                            <div style="display: flex; align-items: center;">
-                                <span class="status-badge status-error">❌ Error</span>
-                                <strong style="margin-left: 15px;">{file.name}</strong>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        results.append(False)
-                    
-                    progress_placeholder.empty()
-                    detail_placeholder.empty()
-                    overall_progress.progress((i + 1) / len(uploaded_files))
+                status.markdown(f"⏳ Subiendo **{f.name}**...")
                 
-                success_count = sum(results)
-                if success_count == len(uploaded_files):
-                    st.success(f"🎉 ¡{success_count} vídeo(s) subido(s) correctamente!")
-                    st.balloons()
-                    st.info("👉 Ahora ve a **'✏️ Rellenar datos'** para añadir títulos y descripciones")
+                def update(p, speed, rem):
+                    file_progress.progress(p)
+                
+                result = upload_video_to_drive(drive_service, config['folder_videos'], f, f.name, update)
+                
+                if result:
+                    add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], 
+                                    [f.name, "", "", "Pendiente de rellenar", ""])
+                    status.markdown(f"✅ **{f.name}** subido")
                 else:
-                    st.warning(f"⚠️ {success_count}/{len(uploaded_files)} subidos correctamente")
+                    status.markdown(f"❌ **{f.name}** falló")
+                
+                file_progress.empty()
+                progress.progress((i + 1) / len(files))
+            
+            st.success("🎉 ¡Subida completada! Ahora ve a **'✏️ Rellenar datos'** para añadir títulos.")
+            st.balloons()
 
 
 def render_edit_tab(sheets_service, config, df):
-    """Tab de edición mejorado"""
-    
     st.markdown("### ✏️ Rellenar títulos y descripciones")
     
-    # Time indicator
-    render_time_indicator()
+    # Timer
+    next_proc = get_next_process()
+    st.markdown(f"""
+    <div class="info-box info-blue">
+        <strong>⏱️ Próximo procesamiento automático:</strong> {next_proc // 60}:{next_proc % 60:02d}
+        <br><small>Los vídeos con título se subirán a YouTube automáticamente</small>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Filtrar pendientes
     pending_df = df[
         (df['Título'].str.strip() == '') | 
-        (df['Estado'].str.contains('Pendiente', case=False, na=True)) |
+        df['Estado'].str.contains('Pendiente', case=False, na=True) |
         (df['Estado'] == '')
     ].copy()
     
     if pending_df.empty:
         st.markdown("""
         <div class="empty-state">
-            <div class="empty-state-icon">🎉</div>
+            <div class="empty-icon">🎉</div>
             <h3>¡Todo listo!</h3>
-            <p>No hay vídeos pendientes de rellenar. Sube nuevos vídeos en la pestaña anterior.</p>
+            <p>No hay vídeos pendientes. Sube más en la pestaña anterior.</p>
         </div>
         """, unsafe_allow_html=True)
         return
     
-    st.markdown(f"""
-    <div class="info-card warning-card">
-        <strong>📝 {len(pending_df)} vídeo(s) esperando título</strong>
-        <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #666;">
-            Añade título y descripción para que se procesen automáticamente
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Sugerencias de hashtags
-    hashtags = ["#Shorts", "#Viral", "#Trending", "#FYP", "#Funny", "#Tutorial", "#Tips"]
+    st.markdown(f"**{len(pending_df)} vídeo(s) esperando título:**")
     
     for idx, row in pending_df.iterrows():
-        status_class, status_text, status_desc = get_video_status_info(row['Estado'], row['Título'])
+        st.markdown(f"""
+        <div class="video-item">
+            <span class="badge badge-pending">⏳ Pendiente</span>
+            <strong style="margin-left: 10px;">📹 {row['Nombre archivo']}</strong>
+        </div>
+        """, unsafe_allow_html=True)
         
-        with st.container():
-            st.markdown(f"""
-            <div class="video-card">
-                <div class="video-card-header">
-                    <div class="video-icon">📹</div>
-                    <div class="video-info">
-                        <h3>{row['Nombre archivo']}</h3>
-                        <div class="video-meta">
-                            <span class="status-badge status-{status_class}">{status_text}</span>
-                            <span style="margin-left: 10px; color: #888;">{status_desc}</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                new_titulo = st.text_input(
-                    "Título del Short",
-                    value=row['Título'],
-                    key=f"titulo_{idx}",
-                    max_chars=100,
-                    placeholder="Escribe un título atractivo..."
-                )
-                
-                # Contador de caracteres
-                char_count = len(new_titulo)
-                char_class = "char-ok" if char_count <= 70 else ("char-warning" if char_count <= 90 else "char-error")
-                st.markdown(f"""
-                <div class="char-counter {char_class}">
-                    {char_count}/100 caracteres {'✓' if char_count <= 70 else '⚠️' if char_count <= 90 else '⛔'}
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                new_descripcion = st.text_area(
-                    "Descripción",
-                    value=row['Descripción'],
-                    key=f"desc_{idx}",
-                    height=100,
-                    placeholder="Añade una descripción con hashtags..."
-                )
-            
-            # Hashtags sugeridos
-            st.markdown("**Hashtags sugeridos:** (clic para copiar)")
-            hashtag_cols = st.columns(len(hashtags))
-            for i, tag in enumerate(hashtags):
-                with hashtag_cols[i]:
-                    if st.button(tag, key=f"hash_{idx}_{i}", use_container_width=True):
-                        st.toast(f"Añade {tag} a tu descripción", icon="📋")
-            
-            col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
-            
-            with col_btn1:
-                if st.button("💾 Guardar", key=f"save_{idx}", type="primary", use_container_width=True):
-                    if new_titulo.strip():
-                        row_num = idx + 2
-                        if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], row_num, new_titulo, new_descripcion):
-                            st.toast("✅ Guardado correctamente", icon="✅")
-                            time.sleep(0.5)
-                            st.rerun()
-                    else:
-                        st.toast("⚠️ El título es obligatorio", icon="⚠️")
-            
-            with col_btn2:
-                if new_titulo.strip():
-                    st.markdown(f"""
-                    <div style="padding: 8px; text-align: center; color: #4caf50; font-size: 0.85rem;">
-                        ✅ Listo para procesar
-                    </div>
-                    """, unsafe_allow_html=True)
-            
-            st.markdown("---")
+        col1, col2, col3 = st.columns([2, 2, 1])
+        
+        with col1:
+            titulo = st.text_input("Título", value=row['Título'], key=f"t_{idx}", 
+                                   max_chars=100, placeholder="Escribe un título llamativo...")
+            chars = len(titulo)
+            color = "char-ok" if chars <= 70 else "char-warn" if chars <= 90 else "char-bad"
+            st.markdown(f'<div class="char-count {color}">{chars}/100</div>', unsafe_allow_html=True)
+        
+        with col2:
+            desc = st.text_input("Descripción", value=row['Descripción'], key=f"d_{idx}",
+                                placeholder="Descripción con #hashtags...")
+        
+        with col3:
+            st.write("")  # Espaciado
+            if st.button("💾 Guardar", key=f"s_{idx}", use_container_width=True):
+                if titulo.strip():
+                    if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
+                        st.toast("✅ Guardado")
+                        time.sleep(0.3)
+                        st.rerun()
+                else:
+                    st.toast("⚠️ El título es obligatorio")
+        
+        st.markdown("---")
 
 
 def render_history_tab(df):
-    """Tab de historial mejorado"""
+    st.markdown("### 📊 Vídeos publicados en YouTube")
     
-    st.markdown("### 📊 Shorts publicados en YouTube")
+    done_df = df[df['Estado'].str.contains('Subido', case=False, na=False)]
     
-    uploaded_df = df[df['Estado'].str.contains('Subido', case=False, na=False)].copy()
-    
-    if uploaded_df.empty:
+    if done_df.empty:
         st.markdown("""
         <div class="empty-state">
-            <div class="empty-state-icon">📭</div>
+            <div class="empty-icon">📭</div>
             <h3>Aún no hay vídeos publicados</h3>
-            <p>Los vídeos aparecerán aquí cuando se suban a YouTube</p>
+            <p>Aparecerán aquí cuando se suban a YouTube</p>
         </div>
         """, unsafe_allow_html=True)
         return
     
     st.markdown(f"""
-    <div class="info-card success-card">
-        <strong>🎬 {len(uploaded_df)} Short(s) publicado(s)</strong>
+    <div class="info-box info-green">
+        <strong>🎬 {len(done_df)} Short(s) publicado(s)</strong>
     </div>
     """, unsafe_allow_html=True)
     
-    for idx, row in uploaded_df.iterrows():
+    for _, row in done_df.iterrows():
         st.markdown(f"""
-        <div class="video-card" style="border-left: 4px solid #4caf50;">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+        <div class="card card-green">
+            <div style="display: flex; justify-content: space-between; align-items: start;">
                 <div>
-                    <h3 style="margin: 0 0 8px 0; color: #333;">{row['Título']}</h3>
-                    <p style="margin: 0 0 5px 0; color: #666; font-size: 0.85rem;">📁 {row['Nombre archivo']}</p>
-                    <p style="margin: 0; color: #888; font-size: 0.85rem;">{row['Descripción'][:100]}{'...' if len(row['Descripción']) > 100 else ''}</p>
+                    <strong style="font-size: 1.1rem;">{row['Título']}</strong>
+                    <div style="color: #666; font-size: 0.85rem; margin-top: 5px;">📁 {row['Nombre archivo']}</div>
+                    <div style="color: #888; font-size: 0.85rem;">{row['Descripción'][:80]}{'...' if len(row['Descripción']) > 80 else ''}</div>
                 </div>
-                <span class="status-badge status-completed">✅ Publicado</span>
+                <span class="badge badge-done">✅ Publicado</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
         
         if row['YouTube URL']:
-            st.link_button("▶️ Ver en YouTube", row['YouTube URL'], use_container_width=False)
+            st.link_button("▶️ Ver en YouTube", row['YouTube URL'])
         st.markdown("")
 
 
-def render_sync_tab(drive_service, sheets_service, config, df, videos_in_drive):
-    """Tab de sincronización"""
+def render_logs_tab(df, drive_service, config):
+    st.markdown("### 📋 Logs, Errores y Estado")
     
-    st.markdown("### 🔄 Sincronización")
+    # === ERRORES ===
+    st.markdown("#### ❌ Vídeos con errores")
     
-    sheet_filenames = set(df['Nombre archivo'].str.lower())
-    unregistered = [v for v in videos_in_drive if v['name'].lower() not in sheet_filenames]
+    error_df = df[df['Estado'].str.contains('Error', case=False, na=False)]
     
-    if unregistered:
-        st.markdown(f"""
-        <div class="info-card warning-card">
-            <strong>⚠️ {len(unregistered)} vídeo(s) en Drive sin registrar</strong>
-            <p style="margin: 5px 0 0 0; font-size: 0.85rem;">Estos vídeos están en Drive pero no en la cola de procesamiento</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        for video in unregistered:
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                size_mb = int(video.get('size', 0)) / (1024 * 1024)
-                st.markdown(f"📹 **{video['name']}** ({size_mb:.1f} MB)")
-            with col2:
-                if st.button("➕ Añadir", key=f"add_{video['id']}"):
-                    add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'],
-                                    [video['name'], "", "", "Pendiente de rellenar", ""])
-                    st.toast("✅ Añadido", icon="✅")
-                    st.rerun()
-        
-        if st.button("➕ Añadir todos", type="primary"):
-            for video in unregistered:
-                add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'],
-                                [video['name'], "", "", "Pendiente de rellenar", ""])
-            st.toast(f"✅ {len(unregistered)} añadidos", icon="✅")
-            st.rerun()
-    else:
+    if error_df.empty:
         st.markdown("""
-        <div class="info-card success-card">
-            <strong>✅ Todo sincronizado</strong>
-            <p style="margin: 5px 0 0 0; font-size: 0.85rem;">Todos los vídeos de Drive están registrados</p>
+        <div class="info-box info-green">
+            ✅ <strong>Sin errores</strong> - Todos los vídeos se han procesado correctamente
         </div>
         """, unsafe_allow_html=True)
+    else:
+        st.markdown(f"""
+        <div class="info-box info-red">
+            ⚠️ <strong>{len(error_df)} vídeo(s) con error</strong>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        for idx, row in error_df.iterrows():
+            error_msg = row['Estado']
+            
+            # Detectar tipo de error
+            if 'uploadLimitExceeded' in error_msg or 'exceeded' in error_msg.lower():
+                error_type = "🚫 Límite diario de YouTube"
+                solution = "Has subido demasiados vídeos hoy. Espera 24 horas."
+                icon = "🕐"
+            elif 'quota' in error_msg.lower():
+                error_type = "📊 Cuota de API agotada"
+                solution = "La cuota se resetea a medianoche (hora del Pacífico)."
+                icon = "📉"
+            elif 'token' in error_msg.lower() or 'auth' in error_msg.lower() or 'credential' in error_msg.lower():
+                error_type = "🔐 Error de autenticación"
+                solution = "Regenera el token y actualiza los Secrets en Streamlit."
+                icon = "🔑"
+            else:
+                error_type = "❓ Error desconocido"
+                solution = "Revisa los detalles del error abajo."
+                icon = "🔍"
+            
+            st.markdown(f"""
+            <div class="card card-red">
+                <div style="margin-bottom: 10px;">
+                    <span class="badge badge-error">{error_type}</span>
+                    <strong style="margin-left: 10px;">📹 {row['Nombre archivo']}</strong>
+                </div>
+                <div style="background: #fff5f5; padding: 10px; border-radius: 8px; margin: 10px 0;">
+                    <strong>{icon} Solución:</strong> {solution}
+                </div>
+                <details>
+                    <summary style="cursor: pointer; color: #666; font-size: 0.85rem;">Ver error técnico</summary>
+                    <code style="display: block; background: #f5f5f5; padding: 10px; margin-top: 10px; border-radius: 5px; font-size: 0.75rem; word-break: break-all;">
+                        {error_msg}
+                    </code>
+                </details>
+            </div>
+            """, unsafe_allow_html=True)
     
     st.markdown("---")
     
-    # Estadísticas
-    st.markdown("#### 📊 Estado del sistema")
+    # === ESTADO DEL SISTEMA ===
+    st.markdown("#### 🔧 Estado del sistema")
+    
     col1, col2, col3, col4 = st.columns(4)
+    
+    pending, ready, done, errors = get_counts(df)
     
     with col1:
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value" style="color: #1a73e8;">{len(videos_in_drive)}</div>
-            <div class="metric-label">En Drive</div>
+        <div class="metric">
+            <div class="metric-value" style="color: #1a73e8;">{len(df)}</div>
+            <div class="metric-label">Total registrados</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col2:
-        pending = len(df[df['Título'].str.strip() == ''])
         st.markdown(f"""
-        <div class="metric-card">
+        <div class="metric">
             <div class="metric-value" style="color: #ff9800;">{pending}</div>
             <div class="metric-label">Sin título</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col3:
-        ready = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido', case=False, na=False))])
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value" style="color: #2196f3;">{ready}</div>
-            <div class="metric-label">En cola</div>
+        <div class="metric">
+            <div class="metric-value" style="color: #4caf50;">{done}</div>
+            <div class="metric-label">Publicados</div>
         </div>
         """, unsafe_allow_html=True)
     
     with col4:
-        uploaded = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
         st.markdown(f"""
-        <div class="metric-card">
-            <div class="metric-value" style="color: #4caf50;">{uploaded}</div>
-            <div class="metric-label">Publicados</div>
+        <div class="metric">
+            <div class="metric-value" style="color: #f44336;">{errors}</div>
+            <div class="metric-label">Con errores</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # === VÍDEOS EN CARPETA DE ERRORES ===
+    st.markdown("#### 📁 Vídeos en carpeta de errores (Drive)")
+    
+    try:
+        error_videos = list_videos_in_folder(drive_service, config['folder_errores'])
+        if error_videos:
+            st.warning(f"Hay {len(error_videos)} vídeo(s) en la carpeta de errores de Drive")
+            for v in error_videos:
+                st.markdown(f"- 📹 {v['name']}")
+            st.info("💡 Para reintentar: mueve el vídeo de `/errores/` a `/videos/` en Drive")
+        else:
+            st.success("✅ La carpeta de errores está vacía")
+    except:
+        st.info("No se pudo acceder a la carpeta de errores")
+    
+    st.markdown("---")
+    
+    # === ACTIVIDAD RECIENTE ===
+    st.markdown("#### 📜 Resumen de actividad")
+    
+    # Mostrar últimos vídeos procesados
+    if done > 0:
+        st.markdown("**Últimos publicados:**")
+        for _, row in df[df['Estado'].str.contains('Subido', case=False, na=False)].tail(5).iterrows():
+            st.markdown(f"""
+            <div class="log-entry log-success">
+                ✅ <strong>{row['Título']}</strong> publicado en YouTube
+            </div>
+            """, unsafe_allow_html=True)
+    
+    if errors > 0:
+        st.markdown("**Últimos errores:**")
+        for _, row in error_df.tail(3).iterrows():
+            st.markdown(f"""
+            <div class="log-entry log-error">
+                ❌ <strong>{row['Nombre archivo']}</strong> falló
+            </div>
+            """, unsafe_allow_html=True)
+
+
+def render_drive_tab(drive_service, sheets_service, config, df, videos_drive):
+    st.markdown("### 📁 Gestionar vídeos en Drive")
+    
+    st.markdown("""
+    <div class="info-box info-blue">
+        <strong>💡 ¿Para qué sirve esto?</strong><br>
+        <small>Si subes vídeos directamente a Google Drive (sin usar esta app), aquí puedes añadirlos a la cola de procesamiento.</small>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Vídeos en Drive no registrados
+    sheet_names = set(df['Nombre archivo'].str.lower())
+    unregistered = [v for v in videos_drive if v['name'].lower() not in sheet_names]
+    
+    st.markdown("#### 📥 Vídeos en Drive pendientes de registrar")
+    
+    if unregistered:
+        st.markdown(f"""
+        <div class="info-box info-orange">
+            <strong>⚠️ {len(unregistered)} vídeo(s) sin registrar</strong><br>
+            <small>Estos vídeos están en Drive pero no aparecen en la cola. Añádelos para poder ponerles título.</small>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        for v in unregistered:
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                size = int(v.get('size', 0)) / (1024 * 1024)
+                st.markdown(f"📹 **{v['name']}** ({size:.1f} MB)")
+            with col2:
+                if st.button("➕ Añadir", key=f"add_{v['id']}"):
+                    add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'],
+                                    [v['name'], "", "", "Pendiente de rellenar", ""])
+                    st.toast("✅ Añadido a la cola")
+                    st.rerun()
+        
+        st.markdown("")
+        if st.button("➕ Añadir todos a la cola", type="primary"):
+            for v in unregistered:
+                add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'],
+                                [v['name'], "", "", "Pendiente de rellenar", ""])
+            st.toast(f"✅ {len(unregistered)} vídeos añadidos")
+            st.rerun()
+    else:
+        st.markdown("""
+        <div class="info-box info-green">
+            ✅ <strong>Todo sincronizado</strong> - Todos los vídeos de Drive están en la cola
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("---")
+    
+    # Resumen de carpetas
+    st.markdown("#### 📊 Resumen de carpetas")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="card card-blue">
+            <strong>📥 /videos/</strong><br>
+            <span style="font-size: 1.5rem; font-weight: bold;">{len(videos_drive)}</span> vídeos
+            <br><small style="color: #666;">Pendientes de procesar</small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        try:
+            procesados = list_videos_in_folder(drive_service, config['folder_procesados'])
+            count_proc = len(procesados)
+        except:
+            count_proc = "?"
+        st.markdown(f"""
+        <div class="card card-green">
+            <strong>✅ /procesados/</strong><br>
+            <span style="font-size: 1.5rem; font-weight: bold;">{count_proc}</span> vídeos
+            <br><small style="color: #666;">Ya subidos a YouTube</small>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        try:
+            errores = list_videos_in_folder(drive_service, config['folder_errores'])
+            count_err = len(errores)
+        except:
+            count_err = "?"
+        st.markdown(f"""
+        <div class="card card-red">
+            <strong>❌ /errores/</strong><br>
+            <span style="font-size: 1.5rem; font-weight: bold;">{count_err}</span> vídeos
+            <br><small style="color: #666;">Fallaron al subir</small>
         </div>
         """, unsafe_allow_html=True)
 
 
-def render_help_section():
-    """Sección de ayuda colapsable"""
-    with st.expander("❓ ¿Cómo funciona?"):
+def render_help():
+    with st.expander("❓ Ayuda y preguntas frecuentes"):
         st.markdown("""
-        ### Flujo de trabajo
+        ### ¿Cómo funciona el sistema?
         
-        1. **📤 Subir vídeos**: Arrastra tus vídeos o súbelos directamente a la carpeta de Drive
-        2. **✏️ Rellenar datos**: Añade título y descripción cuando quieras
-        3. **⚙️ Procesamiento**: Cada 5 minutos, el sistema sube automáticamente los vídeos con título
-        4. **🎬 Publicado**: Recibes un email y el vídeo aparece en el historial
+        1. **Subes vídeos** → Se guardan en Google Drive
+        2. **Añades título** → El vídeo queda listo para procesar
+        3. **Cada 5 minutos** → El sistema sube automáticamente a YouTube
+        4. **Recibes email** → Confirmación con el enlace del Short
+        
+        ---
         
         ### Preguntas frecuentes
         
-        **¿Cuánto tarda en subirse a YouTube?**
-        - Máximo 5 minutos después de añadir el título
+        **¿Por qué mi vídeo no se sube?**
+        - Verifica que tiene título (pestaña "Rellenar datos")
+        - Revisa si hay errores (pestaña "Logs y errores")
+        - Puede ser límite diario de YouTube
         
-        **¿Puedo subir vídeos directamente a Drive?**
-        - Sí, luego ve a "Sincronizar" para añadirlos a la cola
+        **¿Puedo subir vídeos directo a Drive?**
+        - Sí, después ve a "Gestionar Drive" y añádelos a la cola
         
-        **¿Por qué mi vídeo está en errores?**
-        - Puede ser límite diario de YouTube o formato incorrecto
+        **¿Qué pasa si hay un error?**
+        - El vídeo se mueve a la carpeta /errores/
+        - Revisa el error en "Logs y errores"
+        - Para reintentar: mueve el vídeo de /errores/ a /videos/ en Drive
+        
+        **¿Cuál es el límite de YouTube?**
+        - Las cuentas nuevas tienen límite diario (~5-10 vídeos)
+        - Verificar el canal aumenta el límite
+        - El límite se resetea cada 24 horas
         """)
 
 
 def main():
     config = get_config()
-    credentials = get_credentials()
+    creds = get_credentials()
     
-    if not config or not credentials:
-        st.error("⚠️ Configuración no encontrada. Configura los Secrets en Streamlit Cloud.")
+    if not config or not creds:
+        st.error("⚠️ Configuración no encontrada")
+        st.info("Configura los Secrets en Streamlit Cloud: Settings → Secrets")
         return
     
     # Header
     st.markdown('<p class="main-header">🎬 YouTube Shorts Automation</p>', unsafe_allow_html=True)
-    st.markdown('<p class="sub-header">Automatiza la publicación de tus Shorts de forma sencilla</p>', unsafe_allow_html=True)
+    st.markdown('<p class="sub-header">Sube, edita y publica tus Shorts automáticamente</p>', unsafe_allow_html=True)
     
     # Servicios
-    drive_service = get_drive_service(credentials)
-    sheets_service = get_sheets_service(credentials)
+    drive = get_drive_service(creds)
+    sheets = get_sheets_service(creds)
     
     # Datos
-    df = get_sheet_data(sheets_service, config['spreadsheet_id'], config['sheet_name'])
-    videos_in_drive = list_videos_in_folder(drive_service, config['folder_videos'])
+    df = get_sheet_data(sheets, config['spreadsheet_id'], config['sheet_name'])
+    videos_drive = list_videos_in_folder(drive, config['folder_videos'])
     
-    # Workflow visual
-    render_workflow_status(df, videos_in_drive)
+    # Workflow
+    render_workflow(df, videos_drive)
     
     # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tabs = st.tabs([
         "📤 Subir vídeos",
-        "✏️ Rellenar datos", 
+        "✏️ Rellenar datos",
         "📊 Historial",
-        "🔄 Sincronizar"
+        "📋 Logs y errores",
+        "📁 Gestionar Drive"
     ])
     
-    with tab1:
-        render_upload_tab(drive_service, sheets_service, config)
+    with tabs[0]:
+        render_upload_tab(drive, sheets, config)
     
-    with tab2:
-        render_edit_tab(sheets_service, config, df)
+    with tabs[1]:
+        render_edit_tab(sheets, config, df)
     
-    with tab3:
+    with tabs[2]:
         render_history_tab(df)
     
-    with tab4:
-        render_sync_tab(drive_service, sheets_service, config, df, videos_in_drive)
+    with tabs[3]:
+        render_logs_tab(df, drive, config)
     
-    # Help section
-    render_help_section()
+    with tabs[4]:
+        render_drive_tab(drive, sheets, config, df, videos_drive)
+    
+    # Help
+    render_help()
     
     # Footer
     st.markdown("---")
-    st.markdown(f"""
-    <div style="text-align: center; color: #888; font-size: 0.8rem;">
-        📧 Notificaciones: {config['notification_email']} | ⏱️ Procesamiento cada 5 min | 🔄 Actualiza para ver cambios
-    </div>
-    """, unsafe_allow_html=True)
+    st.caption(f"📧 {config['notification_email']} | ⏱️ Procesamiento cada 5 min | 🔄 Recarga para actualizar")
 
 
 if __name__ == "__main__":
