@@ -1,5 +1,5 @@
 """
-YouTube Shorts Automation - Web App v9
+YouTube Shorts Automation - Web App v10
 """
 
 import streamlit as st
@@ -22,27 +22,49 @@ st.set_page_config(
 # ============== ESTILOS ==============
 st.markdown("""
 <style>
-    .main-title {
+    .main-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 15px 0;
+        border-bottom: 3px solid #ff0000;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+        gap: 15px;
+    }
+    .main-header-left {
         display: flex;
         align-items: center;
         gap: 15px;
-        padding: 20px 0;
-        border-bottom: 3px solid #ff0000;
-        margin-bottom: 25px;
     }
-    .main-title img {
-        height: 50px;
+    .main-header-left img {
+        height: 45px;
     }
-    .main-title h1 {
+    .main-header-left h1 {
         color: #ff0000;
-        font-size: 2.5rem;
+        font-size: 2rem;
         margin: 0;
         font-weight: bold;
     }
-    .main-title span {
-        color: #666;
-        font-size: 1rem;
+    .main-header-right {
+        display: flex;
+        gap: 15px;
+        flex-wrap: wrap;
     }
+    .stat-pill {
+        background: #f0f0f0;
+        padding: 8px 15px;
+        border-radius: 20px;
+        font-size: 0.9rem;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+    }
+    .stat-pill.pending { background: #fff3e0; color: #e65100; }
+    .stat-pill.queue { background: #e3f2fd; color: #1565c0; }
+    .stat-pill.done { background: #e8f5e9; color: #2e7d32; }
+    .stat-pill.error { background: #ffebee; color: #c62828; }
+    
     .queue-card {
         background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
         border-left: 5px solid #4caf50;
@@ -218,7 +240,6 @@ def format_size(b):
     return f"{b/1024**2:.1f} MB"
 
 def get_next_process_time():
-    """Calcula el tiempo hasta el próximo procesamiento (cada 5 min)"""
     now = datetime.now()
     minutes = now.minute
     next_5 = ((minutes // 5) + 1) * 5
@@ -230,10 +251,16 @@ def get_next_process_time():
     return int(diff.total_seconds())
 
 def format_countdown(seconds):
-    """Formatea segundos a mm:ss"""
     mins = seconds // 60
     secs = seconds % 60
     return f"{mins}:{secs:02d}"
+
+def get_counts(df):
+    pendientes = len(df[(df['Título'].str.strip() == '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
+    en_cola = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
+    subidos = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
+    errores = len(df[df['Estado'].str.contains('Error', case=False, na=False)])
+    return pendientes, en_cola, subidos, errores
 
 # ============== PÁGINAS ==============
 
@@ -277,7 +304,13 @@ def render_upload_tab(drive_service, sheets_service, config):
 
 
 def render_edit_tab(sheets_service, config, df):
-    st.markdown("### ✏️ Rellenar títulos y descripciones")
+    # Header con refresh
+    col_title, col_refresh = st.columns([4, 1])
+    with col_title:
+        st.markdown("### ✏️ Rellenar títulos y descripciones")
+    with col_refresh:
+        if st.button("🔄 Actualizar", key="refresh_edit", use_container_width=True):
+            st.rerun()
     
     # Solo vídeos SIN título (no subidos, no error)
     sin_titulo = df[
@@ -309,13 +342,16 @@ def render_edit_tab(sheets_service, config, df):
         </div>
         """, unsafe_allow_html=True)
         
-        col_title, col_desc, col_btn = st.columns([3, 3, 1])
+        col_title, col_desc, col_preview, col_btn = st.columns([3, 2.5, 0.5, 1])
         
         with col_title:
             titulo = st.text_input("Título *", key=f"t_{idx}", placeholder="Escribe el título del Short...", label_visibility="collapsed")
         
         with col_desc:
             desc = st.text_input("Descripción", key=f"d_{idx}", placeholder="Descripción (opcional)", label_visibility="collapsed")
+        
+        with col_preview:
+            preview = st.checkbox("👁️", key=f"p_{idx}", help="Previsualizar")
         
         with col_btn:
             if st.button("💾", key=f"s_{idx}", help="Guardar este vídeo", use_container_width=True):
@@ -328,6 +364,22 @@ def render_edit_tab(sheets_service, config, df):
                         st.toast("❌ Error al guardar")
                 else:
                     st.toast("⚠️ El título es obligatorio")
+        
+        # Previsualización
+        if preview:
+            st.markdown(f"""
+            <div style="background: #000; color: #fff; padding: 15px; border-radius: 12px; max-width: 300px; margin: 10px 0 20px 0;">
+                <div style="background: #222; height: 350px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+                    <span style="font-size: 3rem;">📹</span>
+                </div>
+                <div style="font-weight: bold; font-size: 1rem; margin-bottom: 5px;">
+                    {titulo if titulo else '<span style="color: #666;">Sin título...</span>'}
+                </div>
+                <div style="font-size: 0.85rem; color: #aaa;">
+                    {desc[:100] + '...' if desc and len(desc) > 100 else desc if desc else '<span style="color: #555;">Sin descripción...</span>'}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
         
         videos_data[idx] = {'titulo': titulo, 'desc': desc}
         st.write("")
@@ -348,7 +400,13 @@ def render_edit_tab(sheets_service, config, df):
 
 
 def render_queue_tab(df):
-    st.markdown("### 🚀 Vídeos en cola de procesamiento")
+    # Header con refresh
+    col_title, col_refresh = st.columns([4, 1])
+    with col_title:
+        st.markdown("### 🚀 Vídeos en cola de procesamiento")
+    with col_refresh:
+        if st.button("🔄 Actualizar", key="refresh_queue", use_container_width=True):
+            st.rerun()
     
     # Tiempo hasta próximo procesamiento
     seconds_left = get_next_process_time()
@@ -410,7 +468,13 @@ def render_queue_tab(df):
 
 
 def render_history_tab(df):
-    st.markdown("### 📊 Vídeos publicados en YouTube")
+    # Header con refresh
+    col_title, col_refresh = st.columns([4, 1])
+    with col_title:
+        st.markdown("### 📊 Vídeos publicados en YouTube")
+    with col_refresh:
+        if st.button("🔄 Actualizar", key="refresh_history", use_container_width=True):
+            st.rerun()
     
     done_df = df[df['Estado'].str.contains('Subido', case=False, na=False)].copy()
     
@@ -420,6 +484,25 @@ def render_history_tab(df):
     
     st.success(f"🎬 **{len(done_df)} Short(s) publicado(s)** en YouTube")
     
+    # Filtro de búsqueda
+    col_filter, col_count = st.columns([3, 1])
+    with col_filter:
+        search = st.text_input("🔍 Buscar por título o archivo", placeholder="Escribe para filtrar...", label_visibility="collapsed")
+    with col_count:
+        show_count = st.selectbox("Mostrar", [10, 25, 50, 100, "Todos"], index=0, label_visibility="collapsed")
+    
+    # Aplicar filtro
+    if search:
+        done_df = done_df[
+            done_df['Título'].str.contains(search, case=False, na=False) |
+            done_df['Nombre archivo'].str.contains(search, case=False, na=False)
+        ]
+    
+    # Limitar cantidad
+    if show_count != "Todos":
+        done_df = done_df.head(int(show_count))
+    
+    st.caption(f"Mostrando {len(done_df)} vídeo(s)")
     st.divider()
     
     for idx, row in done_df.iterrows():
@@ -431,12 +514,30 @@ def render_history_tab(df):
                 st.caption(f"📝 {row['Descripción'][:100]}")
         with col2:
             if row['YouTube URL']:
-                st.link_button("▶️ Ver en YouTube", row['YouTube URL'], use_container_width=True)
+                st.link_button("▶️ Ver", row['YouTube URL'], use_container_width=True)
         st.divider()
 
 
 def render_logs_tab(df):
     st.markdown("### 📋 Logs y Errores")
+    
+    # Resumen del sistema ARRIBA
+    st.markdown("#### 📊 Resumen del sistema")
+    
+    pendientes, en_cola, subidos, errores = get_counts(df)
+    total = len(df)
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("📊 Total", total)
+    col2.metric("📝 Pendientes", pendientes)
+    col3.metric("🚀 En cola", en_cola)
+    col4.metric("✅ Subidos", subidos)
+    col5.metric("❌ Errores", errores)
+    
+    st.divider()
+    
+    # Errores
+    st.markdown("#### ❌ Errores")
     
     error_df = df[df['Estado'].str.contains('Error', case=False, na=False)]
     
@@ -445,8 +546,28 @@ def render_logs_tab(df):
     else:
         st.error(f"⚠️ **{len(error_df)} vídeo(s) con error**")
         
-        for idx, row in error_df.iterrows():
-            with st.expander(f"❌ {row['Nombre archivo']}", expanded=True):
+        # Filtro de errores
+        col_filter, col_count = st.columns([3, 1])
+        with col_filter:
+            error_search = st.text_input("🔍 Buscar error", placeholder="Filtrar por nombre o mensaje...", key="error_search", label_visibility="collapsed")
+        with col_count:
+            error_count = st.selectbox("Mostrar", [5, 10, 25, "Todos"], index=0, key="error_count", label_visibility="collapsed")
+        
+        # Aplicar filtros
+        filtered_errors = error_df
+        if error_search:
+            filtered_errors = filtered_errors[
+                filtered_errors['Nombre archivo'].str.contains(error_search, case=False, na=False) |
+                filtered_errors['Estado'].str.contains(error_search, case=False, na=False)
+            ]
+        
+        if error_count != "Todos":
+            filtered_errors = filtered_errors.head(int(error_count))
+        
+        st.caption(f"Mostrando {len(filtered_errors)} de {len(error_df)} error(es)")
+        
+        for idx, row in filtered_errors.iterrows():
+            with st.expander(f"❌ {row['Nombre archivo']}", expanded=False):
                 st.code(row['Estado'])
                 
                 # Sugerencias según el error
@@ -459,24 +580,6 @@ def render_logs_tab(df):
                     st.info("💡 **Solución:** El token ha expirado. Regenera el token y actualiza los Secrets.")
                 elif '400' in error_lower:
                     st.info("💡 **Solución:** Error en la solicitud. Verifica el formato del vídeo (MP4 recomendado).")
-    
-    st.divider()
-    
-    # Estadísticas
-    st.markdown("#### 📊 Resumen del sistema")
-    
-    total = len(df)
-    pendientes = len(df[(df['Título'].str.strip() == '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
-    en_cola = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
-    subidos = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
-    errores = len(error_df)
-    
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("📊 Total", total)
-    col2.metric("📝 Pendientes", pendientes)
-    col3.metric("🚀 En cola", en_cola)
-    col4.metric("✅ Subidos", subidos)
-    col5.metric("❌ Errores", errores)
 
 
 def render_drive_tab(drive_service, sheets_service, config, df, videos_drive):
@@ -537,17 +640,6 @@ def main():
         st.info("Necesitas configurar las credenciales de Google en los Secrets de la aplicación.")
         return
     
-    # Header con logo de YouTube
-    st.markdown("""
-    <div class="main-title">
-        <img src="https://upload.wikimedia.org/wikipedia/commons/b/b8/YouTube_Logo_2017.svg" alt="YouTube">
-        <div>
-            <h1>Shorts Automation</h1>
-            <span>Sube, edita y publica tus Shorts automáticamente</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    
     # Servicios
     drive = get_drive_service(creds)
     sheets = get_sheets_service(creds)
@@ -556,17 +648,43 @@ def main():
     df = get_sheet_data(sheets, config['spreadsheet_id'], config['sheet_name'])
     videos_drive = list_videos_in_folder(drive, config['folder_videos'])
     
-    # Contadores para badges
-    sin_titulo = len(df[(df['Título'].str.strip() == '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
-    en_cola = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
+    # Contadores
+    pendientes, en_cola, subidos, errores = get_counts(df)
+    
+    # Header con logo de YouTube + resumen
+    st.markdown(f"""
+    <div class="main-header">
+        <div class="main-header-left">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/b/b8/YouTube_Logo_2017.svg" alt="YouTube">
+            <h1>Shorts Automation</h1>
+        </div>
+        <div class="main-header-right">
+            <div class="stat-pill pending">📝 {pendientes} pendiente(s)</div>
+            <div class="stat-pill queue">🚀 {en_cola} en cola</div>
+            <div class="stat-pill done">✅ {subidos} subido(s)</div>
+            {f'<div class="stat-pill error">❌ {errores} error(es)</div>' if errores > 0 else ''}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Notificación de videos recién subidos a YouTube
+    # Detectar si hay videos subidos recientemente (guardamos en session_state)
+    if 'last_subidos_count' not in st.session_state:
+        st.session_state.last_subidos_count = subidos
+    
+    if subidos > st.session_state.last_subidos_count:
+        nuevos = subidos - st.session_state.last_subidos_count
+        st.balloons()
+        st.success(f"🎉 **¡{nuevos} vídeo(s) nuevo(s) subido(s) a YouTube!** Revisa el historial para ver los enlaces.")
+        st.session_state.last_subidos_count = subidos
     
     # Tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📤 Subir",
-        f"✏️ Rellenar ({sin_titulo})" if sin_titulo > 0 else "✏️ Rellenar",
+        f"✏️ Rellenar ({pendientes})" if pendientes > 0 else "✏️ Rellenar",
         f"🚀 En cola ({en_cola})" if en_cola > 0 else "🚀 En cola",
-        "📊 Historial",
-        "📋 Logs",
+        f"📊 Historial ({subidos})" if subidos > 0 else "📊 Historial",
+        f"📋 Logs ({errores})" if errores > 0 else "📋 Logs",
         "📁 Drive"
     ])
     
