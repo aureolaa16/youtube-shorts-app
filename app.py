@@ -267,6 +267,16 @@ def get_counts(df):
 def render_upload_tab(drive_service, sheets_service, config):
     st.markdown("### 📤 Subir vídeos a Drive")
     
+    # Si acaba de subir, mostrar solo mensaje de éxito
+    if st.session_state.get('just_uploaded', False):
+        st.success("🎉 **¡Vídeos subidos correctamente!**")
+        st.info("👉 Ve a la pestaña **'✏️ Rellenar'** para añadir títulos a tus vídeos.")
+        
+        if st.button("📤 Subir más vídeos", type="primary"):
+            st.session_state.just_uploaded = False
+            st.rerun()
+        return
+    
     st.info("💡 **Paso 1:** Sube tus vídeos aquí. Se guardarán en Google Drive automáticamente.")
     
     files = st.file_uploader("Arrastra tus vídeos aquí", type=['mp4', 'mov', 'avi'], accept_multiple_files=True)
@@ -292,10 +302,7 @@ def render_upload_tab(drive_service, sheets_service, config):
                 if result:
                     add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], 
                                     [f.name, "", "", "Pendiente de rellenar", ""])
-                    st.success(f"✅ {f.name} subido correctamente")
                     uploaded_count += 1
-                else:
-                    st.error(f"❌ {f.name} falló")
                 
                 file_progress.empty()
                 progress.progress((i + 1) / len(files))
@@ -676,11 +683,6 @@ def main():
         st.balloons()
         st.success(f"🎉 **¡{nuevos} vídeo(s) nuevo(s) subido(s) a YouTube!** Revisa el historial para ver los enlaces.")
         st.session_state.last_subidos_count = subidos
-    
-    # Mensaje de redirección si viene de subir
-    if st.session_state.get('just_uploaded', False):
-        st.info("👆 **Tus vídeos están en la pestaña 'Rellenar'.** Haz clic en ella para añadir títulos.")
-        st.session_state.just_uploaded = False
     
     # Tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
