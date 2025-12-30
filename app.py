@@ -279,6 +279,7 @@ def render_upload_tab(drive_service, sheets_service, config):
             progress = st.progress(0)
             status_text = st.empty()
             
+            uploaded_count = 0
             for i, f in enumerate(files):
                 status_text.write(f"⏳ Subiendo **{f.name}**...")
                 file_progress = st.progress(0)
@@ -292,6 +293,7 @@ def render_upload_tab(drive_service, sheets_service, config):
                     add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], 
                                     [f.name, "", "", "Pendiente de rellenar", ""])
                     st.success(f"✅ {f.name} subido correctamente")
+                    uploaded_count += 1
                 else:
                     st.error(f"❌ {f.name} falló")
                 
@@ -299,8 +301,12 @@ def render_upload_tab(drive_service, sheets_service, config):
                 progress.progress((i + 1) / len(files))
             
             status_text.empty()
-            st.balloons()
-            st.success("🎉 ¡Subida completada! Ve a **'✏️ Rellenar datos'** para añadir títulos.")
+            progress.empty()
+            
+            if uploaded_count > 0:
+                st.balloons()
+                st.session_state.just_uploaded = True
+                st.rerun()
 
 
 def render_edit_tab(sheets_service, config, df):
@@ -468,13 +474,7 @@ def render_queue_tab(df):
 
 
 def render_history_tab(df):
-    # Header con refresh
-    col_title, col_refresh = st.columns([4, 1])
-    with col_title:
-        st.markdown("### 📊 Vídeos publicados en YouTube")
-    with col_refresh:
-        if st.button("🔄 Actualizar", key="refresh_history", use_container_width=True):
-            st.rerun()
+    st.markdown("### 📊 Vídeos publicados en YouTube")
     
     done_df = df[df['Estado'].str.contains('Subido', case=False, na=False)].copy()
     
@@ -668,7 +668,6 @@ def main():
     """, unsafe_allow_html=True)
     
     # Notificación de videos recién subidos a YouTube
-    # Detectar si hay videos subidos recientemente (guardamos en session_state)
     if 'last_subidos_count' not in st.session_state:
         st.session_state.last_subidos_count = subidos
     
@@ -677,6 +676,11 @@ def main():
         st.balloons()
         st.success(f"🎉 **¡{nuevos} vídeo(s) nuevo(s) subido(s) a YouTube!** Revisa el historial para ver los enlaces.")
         st.session_state.last_subidos_count = subidos
+    
+    # Mensaje de redirección si viene de subir
+    if st.session_state.get('just_uploaded', False):
+        st.info("👆 **Tus vídeos están en la pestaña 'Rellenar'.** Haz clic en ella para añadir títulos.")
+        st.session_state.just_uploaded = False
     
     # Tabs
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
