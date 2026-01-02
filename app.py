@@ -1,5 +1,5 @@
 """
-YouTube Shorts Automation - Web App v11
+YouTube Shorts Automation - Web App v10
 """
 
 import streamlit as st
@@ -110,124 +110,6 @@ st.markdown("""
     .stats-label {
         font-size: 0.9rem;
         opacity: 0.9;
-    }
-    
-    /* Notificación global */
-    .global-notification {
-        background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
-        color: white;
-        padding: 15px 20px;
-        border-radius: 10px;
-        margin-bottom: 20px;
-        display: flex;
-        align-items: center;
-        gap: 15px;
-        animation: slideIn 0.5s ease-out;
-    }
-    .global-notification.error {
-        background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
-    }
-    @keyframes slideIn {
-        from { transform: translateY(-20px); opacity: 0; }
-        to { transform: translateY(0); opacity: 1; }
-    }
-    .global-notification-icon {
-        font-size: 2rem;
-    }
-    .global-notification-text {
-        flex: 1;
-    }
-    .global-notification-title {
-        font-weight: bold;
-        font-size: 1.1rem;
-    }
-    .global-notification-subtitle {
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
-    
-    /* Preview mejorado */
-    .video-preview {
-        background: #0f0f0f;
-        border-radius: 12px;
-        overflow: hidden;
-        max-width: 280px;
-        margin: 15px 0;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    }
-    .video-preview-player {
-        background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%);
-        height: 380px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-    }
-    .video-preview-player::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23222" width="100" height="100"/><circle cx="50" cy="50" r="20" fill="%23333"/><polygon points="45,40 45,60 62,50" fill="%23555"/></svg>');
-        background-size: cover;
-        opacity: 0.5;
-    }
-    .video-preview-play {
-        width: 60px;
-        height: 60px;
-        background: rgba(255,255,255,0.9);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1;
-    }
-    .video-preview-play::after {
-        content: '';
-        border-style: solid;
-        border-width: 12px 0 12px 20px;
-        border-color: transparent transparent transparent #ff0000;
-        margin-left: 4px;
-    }
-    .video-preview-info {
-        padding: 12px 15px;
-        background: #0f0f0f;
-    }
-    .video-preview-title {
-        color: #fff;
-        font-weight: 500;
-        font-size: 0.95rem;
-        margin-bottom: 8px;
-        line-height: 1.3;
-    }
-    .video-preview-meta {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #aaa;
-        font-size: 0.8rem;
-    }
-    .video-preview-channel {
-        width: 24px;
-        height: 24px;
-        background: #ff0000;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 0.7rem;
-        font-weight: bold;
-    }
-    .video-preview-desc {
-        color: #888;
-        font-size: 0.8rem;
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid #333;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -374,8 +256,8 @@ def format_countdown(seconds):
     return f"{mins}:{secs:02d}"
 
 def get_counts(df):
-    pendientes = len(df[(df['Título'].str.strip() == '') & (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))])
-    en_cola = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))])
+    pendientes = len(df[(df['Título'].str.strip() == '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
+    en_cola = len(df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))])
     subidos = len(df[df['Estado'].str.contains('Subido', case=False, na=False)])
     errores = len(df[df['Estado'].str.contains('Error', case=False, na=False)])
     return pendientes, en_cola, subidos, errores
@@ -388,18 +270,11 @@ def render_upload_tab(drive_service, sheets_service, config):
     # Si acaba de subir, mostrar solo mensaje de éxito
     if st.session_state.get('just_uploaded', False):
         st.success("🎉 **¡Vídeos subidos correctamente!**")
-        st.info("👉 Haz clic en **'✏️ Rellenar'** para añadir títulos a tus vídeos.")
+        st.info("👉 Ve a la pestaña **'✏️ Rellenar'** para añadir títulos a tus vídeos.")
         
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("✏️ Ir a Rellenar", type="primary", use_container_width=True):
-                st.session_state.just_uploaded = False
-                st.session_state.current_tab = "✏️ Rellenar"
-                st.rerun()
-        with col2:
-            if st.button("📤 Subir más vídeos", use_container_width=True):
-                st.session_state.just_uploaded = False
-                st.rerun()
+        if st.button("📤 Subir más vídeos", type="primary"):
+            st.session_state.just_uploaded = False
+            st.rerun()
         return
     
     st.info("💡 **Paso 1:** Sube tus vídeos aquí. Se guardarán en Google Drive automáticamente.")
@@ -450,24 +325,17 @@ def render_edit_tab(sheets_service, config, df):
         if st.button("🔄 Actualizar", key="refresh_edit", use_container_width=True):
             st.rerun()
     
-    # Mostrar mensaje si acaba de guardar - SE QUEDA EN ESTA PESTAÑA
+    # Mostrar mensaje si acaba de guardar
     if st.session_state.get('just_saved_to_queue', False):
         saved_count = st.session_state.get('saved_count', 0)
-        st.markdown(f"""
-        <div class="global-notification">
-            <div class="global-notification-icon">✅</div>
-            <div class="global-notification-text">
-                <div class="global-notification-title">¡{saved_count} vídeo(s) guardado(s) correctamente!</div>
-                <div class="global-notification-subtitle">Ya están en la cola y se subirán a YouTube en el próximo procesamiento</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.success(f"✅ **¡{saved_count} vídeo(s) guardado(s)!** Ya están en la cola de procesamiento.")
+        st.info("👉 Ve a la pestaña **'🚀 En cola'** para ver el estado de tus vídeos.")
         st.session_state.just_saved_to_queue = False
     
-    # Solo vídeos SIN título (no subidos, no error, no borrado)
+    # Solo vídeos SIN título (no subidos, no error)
     sin_titulo = df[
         (df['Título'].str.strip() == '') & 
-        (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))
+        (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))
     ].copy()
     
     if sin_titulo.empty:
@@ -510,6 +378,7 @@ def render_edit_tab(sheets_service, config, df):
         if delete_mode:
             with col_delete:
                 if st.button("🗑️", key=f"del_{idx}", help="Borrar este vídeo", use_container_width=True):
+                    # Borrar fila del sheet (poner estado como "Borrado")
                     try:
                         sheets_service.spreadsheets().values().update(
                             spreadsheetId=config['spreadsheet_id'],
@@ -538,23 +407,18 @@ def render_edit_tab(sheets_service, config, df):
                     else:
                         st.toast("⚠️ El título es obligatorio")
             
-            # Previsualización MEJORADA estilo YouTube
+            # Previsualización
             if preview:
-                display_title = titulo if titulo else "Sin título..."
-                display_desc = desc[:80] + '...' if desc and len(desc) > 80 else desc if desc else "Sin descripción"
-                
                 st.markdown(f"""
-                <div class="video-preview">
-                    <div class="video-preview-player">
-                        <div class="video-preview-play"></div>
+                <div style="background: #000; color: #fff; padding: 15px; border-radius: 12px; max-width: 300px; margin: 10px 0 20px 0;">
+                    <div style="background: #222; height: 350px; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 12px;">
+                        <span style="font-size: 3rem;">📹</span>
                     </div>
-                    <div class="video-preview-info">
-                        <div class="video-preview-title">{display_title}</div>
-                        <div class="video-preview-meta">
-                            <div class="video-preview-channel">YT</div>
-                            <span>Tu Canal · 0 vistas · ahora</span>
-                        </div>
-                        <div class="video-preview-desc">{display_desc}</div>
+                    <div style="font-weight: bold; font-size: 1rem; margin-bottom: 5px;">
+                        {titulo if titulo else '<span style="color: #666;">Sin título...</span>'}
+                    </div>
+                    <div style="font-size: 0.85rem; color: #aaa;">
+                        {desc[:100] + '...' if desc and len(desc) > 100 else desc if desc else '<span style="color: #555;">Sin descripción...</span>'}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -586,27 +450,19 @@ def render_queue_tab(df):
         if st.button("🔄 Actualizar", key="refresh_queue", use_container_width=True):
             st.rerun()
     
-    # Mostrar notificación si hay videos recién subidos a YouTube
+    # Mostrar mensaje si hay videos recién subidos a YouTube
     if st.session_state.get('new_uploads_to_youtube', 0) > 0:
         count = st.session_state.new_uploads_to_youtube
-        st.markdown(f"""
-        <div class="global-notification">
-            <div class="global-notification-icon">🎉</div>
-            <div class="global-notification-text">
-                <div class="global-notification-title">¡{count} vídeo(s) subido(s) a YouTube!</div>
-                <div class="global-notification-subtitle">Ve al historial para ver los enlaces de tus Shorts</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.success(f"🎉 **¡{count} vídeo(s) subido(s) a YouTube!** Revisa el historial para ver los enlaces.")
         st.session_state.new_uploads_to_youtube = 0
     
     # Tiempo hasta próximo procesamiento
     seconds_left = get_next_process_time()
     
-    # Vídeos con título pero no subidos ni error ni borrado
+    # Vídeos con título pero no subidos ni error
     en_cola = df[
         (df['Título'].str.strip() != '') & 
-        (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))
+        (~df['Estado'].str.contains('Subido|Error', case=False, na=False, regex=True))
     ].copy()
     
     # Mostrar countdown
@@ -853,7 +709,7 @@ def main():
     </div>
     """, unsafe_allow_html=True)
     
-    # Notificación GLOBAL de videos recién subidos a YouTube
+    # Notificación de videos recién subidos a YouTube
     if 'last_subidos_count' not in st.session_state:
         st.session_state.last_subidos_count = subidos
     
@@ -861,69 +717,33 @@ def main():
         nuevos = subidos - st.session_state.last_subidos_count
         st.session_state.new_uploads_to_youtube = nuevos
         st.session_state.last_subidos_count = subidos
-        
-        # Notificación global visible en cualquier pestaña
-        st.markdown(f"""
-        <div class="global-notification">
-            <div class="global-notification-icon">🎉</div>
-            <div class="global-notification-text">
-                <div class="global-notification-title">¡{nuevos} vídeo(s) nuevo(s) subido(s) a YouTube!</div>
-                <div class="global-notification-subtitle">Revisa el historial para ver los enlaces de tus Shorts</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.balloons()
     
-    # Navegación con session_state para mantener pestaña
-    if 'current_tab' not in st.session_state:
-        st.session_state.current_tab = "📤 Subir"
-    
-    # Opciones de pestañas
-    tab_options = [
+    # Tabs
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📤 Subir",
         f"✏️ Rellenar ({pendientes})" if pendientes > 0 else "✏️ Rellenar",
         f"🚀 En cola ({en_cola})" if en_cola > 0 else "🚀 En cola",
         f"📊 Historial ({subidos})" if subidos > 0 else "📊 Historial",
         f"📋 Logs ({errores})" if errores > 0 else "📋 Logs",
         "📁 Drive"
-    ]
+    ])
     
-    # Determinar índice actual
-    current_index = 0
-    for i, opt in enumerate(tab_options):
-        if opt.startswith(st.session_state.current_tab.split(" ")[0]):
-            current_index = i
-            break
-    
-    # Navegación horizontal con botones
-    cols = st.columns(6)
-    for i, (col, tab_name) in enumerate(zip(cols, tab_options)):
-        with col:
-            # Estilo diferente para pestaña activa
-            if i == current_index:
-                if st.button(tab_name, key=f"tab_{i}", use_container_width=True, type="primary"):
-                    st.session_state.current_tab = tab_name.split(" (")[0]
-            else:
-                if st.button(tab_name, key=f"tab_{i}", use_container_width=True):
-                    st.session_state.current_tab = tab_name.split(" (")[0]
-                    st.rerun()
-    
-    st.divider()
-    
-    # Renderizar contenido según pestaña actual
-    current = st.session_state.current_tab
-    
-    if current.startswith("📤"):
+    with tab1:
         render_upload_tab(drive, sheets, config)
-    elif current.startswith("✏️"):
+    
+    with tab2:
         render_edit_tab(sheets, config, df)
-    elif current.startswith("🚀"):
+    
+    with tab3:
         render_queue_tab(df)
-    elif current.startswith("📊"):
+    
+    with tab4:
         render_history_tab(df)
-    elif current.startswith("📋"):
+    
+    with tab5:
         render_logs_tab(df)
-    elif current.startswith("📁"):
+    
+    with tab6:
         render_drive_tab(drive, sheets, config, df, videos_drive)
 
 
