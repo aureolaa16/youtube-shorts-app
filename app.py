@@ -1,6 +1,6 @@
 """
 YouTube Shorts Automation - Web App v12
-- Sugerencias de IA con Gemini
+- Sugerencias de IA con Gemini (generación instantánea al pulsar botón)
 - Previsualización estilo YouTube
 - Notificación global de subidas
 """
@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+import google.generativeai as genai
 
 st.set_page_config(
     page_title="YouTube Shorts Automation",
@@ -60,9 +61,6 @@ st.markdown("""
         padding: 8px 15px;
         border-radius: 20px;
         font-size: 0.9rem;
-        display: flex;
-        align-items: center;
-        gap: 5px;
     }
     .stat-pill.pending { background: #fff3e0; color: #e65100; }
     .stat-pill.queue { background: #e3f2fd; color: #1565c0; }
@@ -116,7 +114,6 @@ st.markdown("""
         opacity: 0.9;
     }
     
-    /* Notificación global */
     .global-notification {
         background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
         color: white;
@@ -132,95 +129,11 @@ st.markdown("""
         from { transform: translateY(-20px); opacity: 0; }
         to { transform: translateY(0); opacity: 1; }
     }
-    .global-notification-icon {
-        font-size: 2rem;
-    }
-    .global-notification-text {
-        flex: 1;
-    }
-    .global-notification-title {
-        font-weight: bold;
-        font-size: 1.1rem;
-    }
-    .global-notification-subtitle {
-        font-size: 0.9rem;
-        opacity: 0.9;
-    }
+    .global-notification-icon { font-size: 2rem; }
+    .global-notification-text { flex: 1; }
+    .global-notification-title { font-weight: bold; font-size: 1.1rem; }
+    .global-notification-subtitle { font-size: 0.9rem; opacity: 0.9; }
     
-    /* Preview mejorado estilo YouTube */
-    .video-preview {
-        background: #0f0f0f;
-        border-radius: 12px;
-        overflow: hidden;
-        max-width: 280px;
-        margin: 15px 0;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-    }
-    .video-preview-player {
-        background: linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%);
-        height: 380px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-    }
-    .video-preview-play {
-        width: 60px;
-        height: 60px;
-        background: rgba(255,255,255,0.9);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 1;
-    }
-    .video-preview-play::after {
-        content: '';
-        border-style: solid;
-        border-width: 12px 0 12px 20px;
-        border-color: transparent transparent transparent #ff0000;
-        margin-left: 4px;
-    }
-    .video-preview-info {
-        padding: 12px 15px;
-        background: #0f0f0f;
-    }
-    .video-preview-title {
-        color: #fff;
-        font-weight: 500;
-        font-size: 0.95rem;
-        margin-bottom: 8px;
-        line-height: 1.3;
-    }
-    .video-preview-meta {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        color: #aaa;
-        font-size: 0.8rem;
-    }
-    .video-preview-channel {
-        width: 24px;
-        height: 24px;
-        background: #ff0000;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: white;
-        font-size: 0.7rem;
-        font-weight: bold;
-    }
-    .video-preview-desc {
-        color: #888;
-        font-size: 0.8rem;
-        margin-top: 8px;
-        padding-top: 8px;
-        border-top: 1px solid #333;
-    }
-    
-    /* Mensaje guardado */
     .saved-message {
         background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
         color: white;
@@ -228,12 +141,8 @@ st.markdown("""
         border-radius: 10px;
         margin: 15px 0;
         font-weight: bold;
-        display: flex;
-        align-items: center;
-        gap: 10px;
     }
     
-    /* Sugerencia IA */
     .ai-suggestion {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 12px;
@@ -286,6 +195,7 @@ def get_config():
             'spreadsheet_id': st.secrets["google"]["spreadsheet_id"],
             'sheet_name': st.secrets["google"]["sheet_name"],
             'notification_email': st.secrets["google"]["notification_email"],
+            'gemini_api_key': st.secrets["google"]["gemini_api_key"],
         }
     except:
         return None
@@ -321,36 +231,33 @@ def list_videos_in_folder(drive_service, folder_id):
         return []
 
 def get_sheet_data(sheets_service, spreadsheet_id, sheet_name):
-    """Obtiene datos incluyendo columna H (sugerencias)"""
     try:
         result = sheets_service.spreadsheets().values().get(
             spreadsheetId=spreadsheet_id,
-            range=f"'{sheet_name}'!A:H"
+            range=f"'{sheet_name}'!A:G"
         ).execute()
         rows = result.get('values', [])
         if len(rows) <= 1:
-            return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación', 'Sugerencia IA'])
-        headers = ['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación', 'Sugerencia IA']
+            return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación'])
+        headers = ['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación']
         data = []
         for row in rows[1:]:
-            while len(row) < 8:
+            while len(row) < 7:
                 row.append('')
-            data.append(row[:8])
+            data.append(row[:7])
         return pd.DataFrame(data, columns=headers)
     except:
-        return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación', 'Sugerencia IA'])
+        return pd.DataFrame(columns=['Nombre archivo', 'Título', 'Descripción', 'Estado', 'YouTube URL', 'Fecha subida', 'Fecha publicación'])
 
 def add_row_to_sheet(sheets_service, spreadsheet_id, sheet_name, row_data):
     try:
-        if len(row_data) < 6:
-            row_data.append(datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        if len(row_data) < 7:
+        while len(row_data) < 7:
             row_data.append('')
-        if len(row_data) < 8:
-            row_data.append('')  # Columna sugerencia
+        if not row_data[5]:
+            row_data[5] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         sheets_service.spreadsheets().values().append(
             spreadsheetId=spreadsheet_id,
-            range=f"'{sheet_name}'!A:H",
+            range=f"'{sheet_name}'!A:G",
             valueInputOption="RAW",
             insertDataOption="INSERT_ROWS",
             body={"values": [row_data]}
@@ -396,6 +303,64 @@ def upload_video_to_drive(drive_service, folder_id, file, filename, progress_cb=
     except:
         return None
 
+def download_file_from_drive(drive_service, file_id):
+    try:
+        request = drive_service.files().get_media(fileId=file_id)
+        content = request.execute()
+        return content
+    except:
+        return None
+
+def find_file_in_drive(drive_service, filename, folder_id):
+    try:
+        query = f"name='{filename}' and '{folder_id}' in parents and trashed=false"
+        results = drive_service.files().list(q=query, fields="files(id, name)").execute()
+        files = results.get('files', [])
+        return files[0] if files else None
+    except:
+        return None
+
+# ============== GEMINI ==============
+
+def generate_suggestion_with_gemini(video_content, filename, api_key):
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+        
+        ext = filename.lower().split('.')[-1]
+        mime_types = {'mp4': 'video/mp4', 'mov': 'video/quicktime', 'avi': 'video/x-msvideo'}
+        mime_type = mime_types.get(ext, 'video/mp4')
+        
+        prompt = """Analiza este vídeo corto (Short) y genera sugerencias en español.
+
+IMPORTANTE: Responde SOLO con un JSON válido, sin texto adicional, sin markdown, sin ```json```.
+
+El JSON debe tener exactamente esta estructura:
+{"titulo": "título viral máximo 60 caracteres", "descripcion": "descripción atractiva con 3-5 hashtags relevantes al final, máximo 200 caracteres", "tags": ["tag1", "tag2", "tag3", "tag4", "tag5"]}
+
+Reglas:
+- El título debe ser llamativo, viral y generar curiosidad
+- La descripción debe ser atractiva e incluir hashtags populares
+- Los tags deben ser relevantes para YouTube Shorts
+- Todo en español"""
+
+        response = model.generate_content([
+            prompt,
+            {"mime_type": mime_type, "data": video_content}
+        ])
+        
+        response_text = response.text.strip()
+        if response_text.startswith("```"):
+            response_text = response_text.split("```")[1]
+            if response_text.startswith("json"):
+                response_text = response_text[4:]
+        response_text = response_text.strip()
+        
+        return json.loads(response_text)
+    except Exception as e:
+        st.error(f"Error con Gemini: {e}")
+        return None
+
 # ============== HELPERS ==============
 
 def format_size(b):
@@ -411,13 +376,10 @@ def get_next_process_time():
         target = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     else:
         target = now.replace(minute=next_5, second=0, microsecond=0)
-    diff = target - now
-    return int(diff.total_seconds())
+    return int((target - now).total_seconds())
 
 def format_countdown(seconds):
-    mins = seconds // 60
-    secs = seconds % 60
-    return f"{mins}:{secs:02d}"
+    return f"{seconds // 60}:{seconds % 60:02d}"
 
 def get_counts(df):
     pendientes = len(df[(df['Título'].str.strip() == '') & (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))])
@@ -426,15 +388,6 @@ def get_counts(df):
     errores = len(df[df['Estado'].str.contains('Error', case=False, na=False)])
     return pendientes, en_cola, subidos, errores
 
-def parse_suggestion(suggestion_json):
-    """Parsea la sugerencia JSON de Gemini"""
-    try:
-        if not suggestion_json or suggestion_json.strip() == '':
-            return None
-        return json.loads(suggestion_json)
-    except:
-        return None
-
 # ============== PÁGINAS ==============
 
 def render_upload_tab(drive_service, sheets_service, config):
@@ -442,26 +395,25 @@ def render_upload_tab(drive_service, sheets_service, config):
     
     if st.session_state.get('just_uploaded', False):
         st.success("🎉 **¡Vídeos subidos correctamente!**")
-        st.info("👉 Ve a la pestaña **'✏️ Rellenar'** para añadir títulos. La IA generará sugerencias automáticamente en unos minutos.")
-        
+        st.info("👉 Ve a la pestaña **'✏️ Rellenar'** para generar sugerencias con IA.")
         if st.button("📤 Subir más vídeos", type="primary"):
             st.session_state.just_uploaded = False
             st.rerun()
         return
     
-    st.info("💡 **Paso 1:** Sube tus vídeos aquí. La IA analizará el contenido y sugerirá títulos automáticamente.")
+    st.info("💡 Sube tus vídeos aquí. Luego genera títulos con IA en la pestaña 'Rellenar'.")
     
     files = st.file_uploader("Arrastra tus vídeos aquí", type=['mp4', 'mov', 'avi'], accept_multiple_files=True)
     
     if files:
         total_size = sum(f.size for f in files)
-        st.write(f"📁 **{len(files)} vídeo(s)** seleccionado(s) - {format_size(total_size)} total")
+        st.write(f"📁 **{len(files)} vídeo(s)** - {format_size(total_size)}")
         
         if st.button("🚀 Subir a Drive", type="primary", use_container_width=True):
             progress = st.progress(0)
             status_text = st.empty()
-            
             uploaded_count = 0
+            
             for i, f in enumerate(files):
                 status_text.write(f"⏳ Subiendo **{f.name}**...")
                 file_progress = st.progress(0)
@@ -473,7 +425,7 @@ def render_upload_tab(drive_service, sheets_service, config):
                 
                 if result:
                     add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], 
-                                    [f.name, "", "", "Pendiente de rellenar", "", "", "", ""])
+                                    [f.name, "", "", "Pendiente de rellenar", ""])
                     uploaded_count += 1
                 
                 file_progress.empty()
@@ -488,7 +440,7 @@ def render_upload_tab(drive_service, sheets_service, config):
                 st.rerun()
 
 
-def render_edit_tab(sheets_service, config, df):
+def render_edit_tab(drive_service, sheets_service, config, df):
     col_title, col_refresh = st.columns([4, 1])
     with col_title:
         st.markdown("### ✏️ Rellenar títulos y descripciones")
@@ -502,195 +454,147 @@ def render_edit_tab(sheets_service, config, df):
     ].copy()
     
     if sin_titulo.empty:
-        st.success("🎉 ¡Todo listo! No hay vídeos pendientes de rellenar.")
-        st.info("👉 Sube más vídeos en la pestaña **'📤 Subir'** o revisa los que están **'🚀 En cola'**")
+        st.success("🎉 ¡Todo listo! No hay vídeos pendientes.")
+        st.info("👉 Sube más vídeos en **'📤 Subir'** o revisa **'🚀 En cola'**")
         return
     
-    st.warning(f"📝 **{len(sin_titulo)} vídeo(s)** esperando título. La IA genera sugerencias automáticamente.")
+    st.warning(f"📝 **{len(sin_titulo)} vídeo(s)** pendientes. Pulsa ✨ para generar sugerencia con IA.")
     
     col1, col2, col3 = st.columns([2, 1, 1])
     with col2:
         save_all = st.button("💾 Guardar todos", type="primary", use_container_width=True)
     with col3:
-        delete_mode = st.checkbox("🗑️ Modo borrar", help="Activa para poder borrar vídeos")
+        delete_mode = st.checkbox("🗑️ Borrar", help="Modo borrar")
     
     st.divider()
-    
     message_placeholder = st.empty()
-    
     videos_data = {}
     saved_this_session = []
     
     for idx, row in sin_titulo.iterrows():
-        st.markdown(f"""
-        <div class="pending-card">
-            <strong>📹 {row['Nombre archivo']}</strong>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="pending-card"><strong>📹 {row['Nombre archivo']}</strong></div>""", unsafe_allow_html=True)
         
-        # Parsear sugerencia de IA si existe
-        suggestion = parse_suggestion(row.get('Sugerencia IA', ''))
+        # Session state para sugerencias
+        suggestion_key = f"suggestion_{idx}"
+        if suggestion_key not in st.session_state:
+            st.session_state[suggestion_key] = None
         
-        # Mostrar sugerencia de IA si existe
+        suggestion = st.session_state[suggestion_key]
+        
+        # Mostrar sugerencia si existe
         if suggestion:
             st.markdown(f"""
             <div class="ai-suggestion">
-                <div class="ai-suggestion-header">✨ Sugerencia de IA (Gemini)</div>
-                <div class="ai-suggestion-title">📌 {suggestion.get('titulo', 'Sin título')}</div>
-                <div class="ai-suggestion-desc">📝 {suggestion.get('descripcion', 'Sin descripción')}</div>
-                <div class="ai-suggestion-tags">
-                    {''.join([f'<span class="ai-tag">#{tag}</span>' for tag in suggestion.get('tags', [])])}
-                </div>
+                <div class="ai-suggestion-header">✨ Sugerencia de Gemini</div>
+                <div class="ai-suggestion-title">📌 {suggestion.get('titulo', '')}</div>
+                <div class="ai-suggestion-desc">📝 {suggestion.get('descripcion', '')}</div>
+                <div class="ai-suggestion-tags">{''.join([f'<span class="ai-tag">#{tag}</span>' for tag in suggestion.get('tags', [])])}</div>
             </div>
             """, unsafe_allow_html=True)
         
+        # Inputs
         if delete_mode:
-            col_title_input, col_desc, col_delete = st.columns([3, 2.5, 1])
+            col_t, col_d, col_del = st.columns([3, 2.5, 1])
         else:
-            col_title_input, col_desc, col_ai, col_btn = st.columns([3, 2.5, 1, 1])
+            col_t, col_d, col_ai, col_use, col_save = st.columns([2.5, 2, 0.7, 0.7, 0.7])
         
-        # Valores por defecto de los inputs
-        default_titulo = st.session_state.get(f"titulo_{idx}", "")
-        default_desc = st.session_state.get(f"desc_{idx}", "")
+        titulo_key = f"titulo_{idx}"
+        desc_key = f"desc_{idx}"
         
-        with col_title_input:
-            titulo = st.text_input("Título *", key=f"t_{idx}", value=default_titulo, placeholder="Escribe el título del Short...", label_visibility="collapsed")
+        with col_t:
+            titulo = st.text_input("Título", key=f"t_{idx}", value=st.session_state.get(titulo_key, ""), placeholder="Título del Short...", label_visibility="collapsed")
         
-        with col_desc:
-            desc = st.text_input("Descripción", key=f"d_{idx}", value=default_desc, placeholder="Descripción (opcional)", label_visibility="collapsed")
+        with col_d:
+            desc = st.text_input("Descripción", key=f"d_{idx}", value=st.session_state.get(desc_key, ""), placeholder="Descripción...", label_visibility="collapsed")
         
         if delete_mode:
-            with col_delete:
-                if st.button("🗑️", key=f"del_{idx}", help="Borrar este vídeo", use_container_width=True):
-                    try:
-                        sheets_service.spreadsheets().values().update(
-                            spreadsheetId=config['spreadsheet_id'],
-                            range=f"'{config['sheet_name']}'!D{idx + 2}",
-                            valueInputOption="RAW",
-                            body={"values": [["Borrado"]]}
-                        ).execute()
-                        st.toast("🗑️ Vídeo borrado - Pulsa Actualizar")
-                    except:
-                        st.toast("❌ Error al borrar")
+            with col_del:
+                if st.button("🗑️", key=f"del_{idx}", use_container_width=True):
+                    sheets_service.spreadsheets().values().update(
+                        spreadsheetId=config['spreadsheet_id'],
+                        range=f"'{config['sheet_name']}'!D{idx + 2}",
+                        valueInputOption="RAW",
+                        body={"values": [["Borrado"]]}
+                    ).execute()
+                    st.toast("🗑️ Borrado")
         else:
             with col_ai:
-                # Botón para usar sugerencia de IA
-                if suggestion:
-                    if st.button("✨", key=f"ai_{idx}", help="Usar sugerencia de IA", use_container_width=True):
-                        st.session_state[f"titulo_{idx}"] = suggestion.get('titulo', '')
-                        st.session_state[f"desc_{idx}"] = suggestion.get('descripcion', '')
-                        st.rerun()
-                else:
-                    st.button("⏳", key=f"ai_{idx}", help="Esperando sugerencia...", disabled=True, use_container_width=True)
+                if st.button("✨", key=f"ai_{idx}", help="Generar con IA", use_container_width=True):
+                    with st.spinner("🤖 Analizando..."):
+                        file_info = find_file_in_drive(drive_service, row['Nombre archivo'], config['folder_videos'])
+                        if file_info:
+                            video_content = download_file_from_drive(drive_service, file_info['id'])
+                            if video_content:
+                                result = generate_suggestion_with_gemini(video_content, row['Nombre archivo'], config['gemini_api_key'])
+                                if result:
+                                    st.session_state[suggestion_key] = result
+                                    st.rerun()
             
-            with col_btn:
+            with col_use:
+                if suggestion:
+                    if st.button("📋", key=f"use_{idx}", help="Usar sugerencia", use_container_width=True):
+                        st.session_state[titulo_key] = suggestion.get('titulo', '')
+                        st.session_state[desc_key] = suggestion.get('descripcion', '')
+                        st.rerun()
+            
+            with col_save:
                 if st.button("💾", key=f"s_{idx}", help="Guardar", use_container_width=True):
                     if titulo.strip():
                         if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, titulo, desc):
                             saved_this_session.append(row['Nombre archivo'])
-                        else:
-                            st.toast("❌ Error al guardar")
+                            st.session_state[suggestion_key] = None
                     else:
-                        st.toast("⚠️ El título es obligatorio")
+                        st.toast("⚠️ Título obligatorio")
         
-        videos_data[idx] = {'titulo': titulo, 'desc': desc, 'nombre': row['Nombre archivo']}
+        videos_data[idx] = {'titulo': titulo, 'desc': desc}
         st.write("")
     
     if saved_this_session:
-        message_placeholder.markdown(f"""
-        <div class="saved-message">
-            ✅ ¡{len(saved_this_session)} vídeo(s) guardado(s) correctamente! Ya están en cola. Pulsa "🔄 Actualizar" para ver los cambios.
-        </div>
-        """, unsafe_allow_html=True)
+        message_placeholder.markdown(f"""<div class="saved-message">✅ ¡{len(saved_this_session)} guardado(s)! Pulsa Actualizar.</div>""", unsafe_allow_html=True)
     
     if save_all:
         valid = {k: v for k, v in videos_data.items() if v['titulo'].strip()}
-        if not valid:
-            st.warning("⚠️ Escribe al menos un título")
-        else:
-            saved = 0
-            for idx, data in valid.items():
-                if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, data['titulo'], data['desc']):
-                    saved += 1
-            if saved > 0:
-                message_placeholder.markdown(f"""
-                <div class="saved-message">
-                    ✅ ¡{saved} vídeo(s) guardado(s) correctamente! Ya están en cola. Pulsa "🔄 Actualizar" para ver los cambios.
-                </div>
-                """, unsafe_allow_html=True)
+        if valid:
+            saved = sum(1 for idx, data in valid.items() if update_sheet_row(sheets_service, config['spreadsheet_id'], config['sheet_name'], idx + 2, data['titulo'], data['desc']))
+            if saved:
+                message_placeholder.markdown(f"""<div class="saved-message">✅ ¡{saved} guardado(s)!</div>""", unsafe_allow_html=True)
 
 
 def render_queue_tab(df):
     col_title, col_refresh = st.columns([4, 1])
     with col_title:
-        st.markdown("### 🚀 Vídeos en cola de procesamiento")
+        st.markdown("### 🚀 En cola")
     with col_refresh:
         if st.button("🔄 Actualizar", key="refresh_queue", use_container_width=True):
             st.rerun()
     
-    if st.session_state.get('new_uploads_to_youtube', 0) > 0:
-        count = st.session_state.new_uploads_to_youtube
-        st.markdown(f"""
-        <div class="global-notification">
-            <div class="global-notification-icon">🎉</div>
-            <div class="global-notification-text">
-                <div class="global-notification-title">¡{count} vídeo(s) subido(s) a YouTube!</div>
-                <div class="global-notification-subtitle">Ve al historial para ver los enlaces de tus Shorts</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.session_state.new_uploads_to_youtube = 0
-    
     seconds_left = get_next_process_time()
-    
-    en_cola = df[
-        (df['Título'].str.strip() != '') & 
-        (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))
-    ].copy()
+    en_cola = df[(df['Título'].str.strip() != '') & (~df['Estado'].str.contains('Subido|Error|Borrado', case=False, na=False, regex=True))].copy()
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"""
-        <div class="stats-box">
-            <div class="stats-number">⏱️ {format_countdown(seconds_left)}</div>
-            <div class="stats-label">Próximo procesamiento</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="stats-box"><div class="stats-number">⏱️ {format_countdown(seconds_left)}</div><div class="stats-label">Próximo proceso</div></div>""", unsafe_allow_html=True)
     with col2:
-        st.markdown(f"""
-        <div class="stats-box">
-            <div class="stats-number">{len(en_cola)}</div>
-            <div class="stats-label">Vídeos en cola</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="stats-box"><div class="stats-number">{len(en_cola)}</div><div class="stats-label">En cola</div></div>""", unsafe_allow_html=True)
     with col3:
-        st.markdown(f"""
-        <div class="stats-box">
-            <div class="stats-number">5 min</div>
-            <div class="stats-label">Intervalo de proceso</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f"""<div class="stats-box"><div class="stats-number">5 min</div><div class="stats-label">Intervalo</div></div>""", unsafe_allow_html=True)
     
     st.write("")
     
     if en_cola.empty:
-        st.info("📭 No hay vídeos en cola. Ve a **'✏️ Rellenar datos'** para añadir títulos a tus vídeos.")
+        st.info("📭 No hay vídeos en cola.")
         return
     
-    st.success(f"🎬 **{len(en_cola)} vídeo(s)** listos para subirse a YouTube")
-    st.caption("Los vídeos se procesarán automáticamente en el próximo ciclo.")
-    
+    st.success(f"🎬 **{len(en_cola)} vídeo(s)** listos")
     st.divider()
     
     for idx, row in en_cola.iterrows():
-        desc_html = f"<div class='queue-card-file'>📝 {row['Descripción'][:80]}...</div>" if row['Descripción'] and len(row['Descripción']) > 0 else ""
         st.markdown(f"""
         <div class="queue-card">
-            <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <div class="queue-card-title">🎬 {row['Título']}</div>
                     <div class="queue-card-file">📁 {row['Nombre archivo']}</div>
-                    {desc_html}
                 </div>
                 <div class="queue-card-time">⏳ {format_countdown(seconds_left)}</div>
             </div>
@@ -699,32 +603,14 @@ def render_queue_tab(df):
 
 
 def render_history_tab(df):
-    st.markdown("### 📊 Vídeos publicados en YouTube")
-    
+    st.markdown("### 📊 Historial")
     done_df = df[df['Estado'].str.contains('Subido', case=False, na=False)].copy()
     
     if done_df.empty:
-        st.info("📭 Aún no hay vídeos publicados. Aparecerán aquí cuando se suban a YouTube.")
+        st.info("📭 No hay vídeos publicados aún.")
         return
     
-    st.success(f"🎬 **{len(done_df)} Short(s) publicado(s)** en YouTube")
-    
-    col_filter, col_count = st.columns([3, 1])
-    with col_filter:
-        search = st.text_input("🔍 Buscar por título o archivo", placeholder="Escribe para filtrar...", label_visibility="collapsed")
-    with col_count:
-        show_count = st.selectbox("Mostrar", [10, 25, 50, 100, "Todos"], index=0, label_visibility="collapsed")
-    
-    if search:
-        done_df = done_df[
-            done_df['Título'].str.contains(search, case=False, na=False) |
-            done_df['Nombre archivo'].str.contains(search, case=False, na=False)
-        ]
-    
-    if show_count != "Todos":
-        done_df = done_df.head(int(show_count))
-    
-    st.caption(f"Mostrando {len(done_df)} vídeo(s)")
+    st.success(f"🎬 **{len(done_df)} Short(s)** publicados")
     st.divider()
     
     for idx, row in done_df.iterrows():
@@ -732,8 +618,6 @@ def render_history_tab(df):
         with col1:
             st.markdown(f"**{row['Título']}**")
             st.caption(f"📁 {row['Nombre archivo']}")
-            if row['Descripción']:
-                st.caption(f"📝 {row['Descripción'][:100]}")
         with col2:
             if row['YouTube URL']:
                 st.link_button("▶️ Ver", row['YouTube URL'], use_container_width=True)
@@ -741,107 +625,40 @@ def render_history_tab(df):
 
 
 def render_logs_tab(df):
-    st.markdown("### 📋 Logs y Errores")
-    
-    st.markdown("#### 📊 Resumen del sistema")
-    
+    st.markdown("### 📋 Logs")
     pendientes, en_cola, subidos, errores = get_counts(df)
-    total = len(df)
     
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("📊 Total", total)
-    col2.metric("📝 Pendientes", pendientes)
-    col3.metric("🚀 En cola", en_cola)
-    col4.metric("✅ Subidos", subidos)
-    col5.metric("❌ Errores", errores)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("📝 Pendientes", pendientes)
+    col2.metric("🚀 Cola", en_cola)
+    col3.metric("✅ Subidos", subidos)
+    col4.metric("❌ Errores", errores)
     
     st.divider()
-    
-    st.markdown("#### ❌ Errores")
-    
     error_df = df[df['Estado'].str.contains('Error', case=False, na=False)]
     
     if error_df.empty:
-        st.success("✅ **Sin errores** - Todos los vídeos se han procesado correctamente")
+        st.success("✅ Sin errores")
     else:
-        st.error(f"⚠️ **{len(error_df)} vídeo(s) con error**")
-        
-        col_filter, col_count = st.columns([3, 1])
-        with col_filter:
-            error_search = st.text_input("🔍 Buscar error", placeholder="Filtrar...", key="error_search", label_visibility="collapsed")
-        with col_count:
-            error_count = st.selectbox("Mostrar", [5, 10, 25, "Todos"], index=0, key="error_count", label_visibility="collapsed")
-        
-        filtered_errors = error_df
-        if error_search:
-            filtered_errors = filtered_errors[
-                filtered_errors['Nombre archivo'].str.contains(error_search, case=False, na=False) |
-                filtered_errors['Estado'].str.contains(error_search, case=False, na=False)
-            ]
-        
-        if error_count != "Todos":
-            filtered_errors = filtered_errors.head(int(error_count))
-        
-        st.caption(f"Mostrando {len(filtered_errors)} de {len(error_df)} error(es)")
-        
-        for idx, row in filtered_errors.iterrows():
-            with st.expander(f"❌ {row['Nombre archivo']}", expanded=False):
+        st.error(f"⚠️ {len(error_df)} error(es)")
+        for idx, row in error_df.iterrows():
+            with st.expander(f"❌ {row['Nombre archivo']}"):
                 st.code(row['Estado'])
-                
-                error_lower = row['Estado'].lower()
-                if 'uploadlimitexceeded' in error_lower or 'exceeded' in error_lower:
-                    st.info("💡 **Solución:** Límite diario de YouTube. Espera 24 horas.")
-                elif 'quota' in error_lower:
-                    st.info("💡 **Solución:** Cuota agotada. Se resetea a medianoche.")
-                elif 'token' in error_lower or 'auth' in error_lower:
-                    st.info("💡 **Solución:** Token expirado. Regenera el token.")
 
 
 def render_drive_tab(drive_service, sheets_service, config, df, videos_drive):
-    st.markdown("### 📁 Gestionar Google Drive")
-    
-    st.info("💡 Si subes vídeos directamente a Google Drive (sin usar esta app), aquí puedes añadirlos al sistema.")
-    
+    st.markdown("### 📁 Drive")
     sheet_names = set(df['Nombre archivo'].str.lower())
     unregistered = [v for v in videos_drive if v['name'].lower() not in sheet_names]
     
     if unregistered:
-        st.warning(f"⚠️ **{len(unregistered)} vídeo(s)** en Drive sin registrar")
-        
-        if st.button("➕ Añadir todos al sistema", type="primary", use_container_width=True):
+        st.warning(f"⚠️ **{len(unregistered)}** sin registrar")
+        if st.button("➕ Añadir todos", type="primary", use_container_width=True):
             for v in unregistered:
-                add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'],
-                                [v['name'], "", "", "Pendiente de rellenar", "", "", "", ""])
-            st.success(f"✅ {len(unregistered)} vídeos añadidos")
-            time.sleep(1)
+                add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'], [v['name'], "", "", "Pendiente de rellenar", ""])
             st.rerun()
-        
-        st.divider()
-        
-        for v in unregistered:
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                size = int(v.get('size', 0)) / (1024 * 1024)
-                st.write(f"📹 **{v['name']}** ({size:.1f} MB)")
-            with col2:
-                if st.button("➕ Añadir", key=f"add_{v['id']}"):
-                    add_row_to_sheet(sheets_service, config['spreadsheet_id'], config['sheet_name'],
-                                    [v['name'], "", "", "Pendiente de rellenar", "", "", "", ""])
-                    st.toast("✅ Añadido")
-                    st.rerun()
     else:
-        st.success("✅ **Todo sincronizado**")
-    
-    st.divider()
-    
-    st.markdown("#### 📂 Carpetas de Drive")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.info(f"📁 **/videos/**\n\n{len(videos_drive)} vídeo(s)")
-    with col2:
-        st.success("📁 **/procesados/**\n\nSubidos a YouTube")
-    with col3:
-        st.error("📁 **/errores/**\n\nVídeos con error")
+        st.success("✅ Todo sincronizado")
 
 
 def main():
@@ -854,10 +671,8 @@ def main():
     
     drive = get_drive_service(creds)
     sheets = get_sheets_service(creds)
-    
     df = get_sheet_data(sheets, config['spreadsheet_id'], config['sheet_name'])
     videos_drive = list_videos_in_folder(drive, config['folder_videos'])
-    
     pendientes, en_cola, subidos, errores = get_counts(df)
     
     st.markdown(f"""
@@ -867,46 +682,27 @@ def main():
             <h1>Shorts Automation</h1>
         </div>
         <div class="main-header-right">
-            <div class="stat-pill pending">📝 {pendientes} pendiente(s)</div>
-            <div class="stat-pill queue">🚀 {en_cola} en cola</div>
-            <div class="stat-pill done">✅ {subidos} subido(s)</div>
-            {f'<div class="stat-pill error">❌ {errores} error(es)</div>' if errores > 0 else ''}
+            <div class="stat-pill pending">📝 {pendientes}</div>
+            <div class="stat-pill queue">🚀 {en_cola}</div>
+            <div class="stat-pill done">✅ {subidos}</div>
+            {f'<div class="stat-pill error">❌ {errores}</div>' if errores else ''}
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    if 'last_subidos_count' not in st.session_state:
-        st.session_state.last_subidos_count = subidos
-    
-    if subidos > st.session_state.last_subidos_count:
-        nuevos = subidos - st.session_state.last_subidos_count
-        st.session_state.new_uploads_to_youtube = nuevos
-        st.session_state.last_subidos_count = subidos
-        
-        st.markdown(f"""
-        <div class="global-notification">
-            <div class="global-notification-icon">🎉</div>
-            <div class="global-notification-text">
-                <div class="global-notification-title">¡{nuevos} vídeo(s) nuevo(s) subido(s) a YouTube!</div>
-                <div class="global-notification-subtitle">Revisa el historial para ver los enlaces</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-        st.balloons()
-    
     tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "📤 Subir",
-        f"✏️ Rellenar ({pendientes})" if pendientes > 0 else "✏️ Rellenar",
-        f"🚀 En cola ({en_cola})" if en_cola > 0 else "🚀 En cola",
-        f"📊 Historial ({subidos})" if subidos > 0 else "📊 Historial",
-        f"📋 Logs ({errores})" if errores > 0 else "📋 Logs",
+        f"✏️ Rellenar ({pendientes})" if pendientes else "✏️ Rellenar",
+        f"🚀 Cola ({en_cola})" if en_cola else "🚀 Cola",
+        f"📊 Historial ({subidos})" if subidos else "📊 Historial",
+        "📋 Logs",
         "📁 Drive"
     ])
     
     with tab1:
         render_upload_tab(drive, sheets, config)
     with tab2:
-        render_edit_tab(sheets, config, df)
+        render_edit_tab(drive, sheets, config, df)
     with tab3:
         render_queue_tab(df)
     with tab4:
